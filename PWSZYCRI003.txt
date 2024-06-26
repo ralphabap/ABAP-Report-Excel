@@ -1,0 +1,2049 @@
+* --------------------------------------------------------------------
+* PROCWORK Software
+* Produto  : pw.CE
+* Módulo   : CR - pw.CE Reports
+* Descrição: Rotinas comuns para chamada do Excel
+* Help Desk: (11) 5504-0270
+* --------------------------------------------------------------------
+* ESTE PROGRAMA NÃO DEVE SER ALTERADO SEM PRÉVIA CONSULTA
+* --------------------------------------------------------------------
+* Chamado      Data         Descrição
+* --------------------------------------------------------------------
+* 316455       14/11/2006   Codificação inicial
+* 385209       31/05/2007   Tratamento para read texts no Reports Excel
+* A request é:F6DK946929
+* --------------------------------------------------------------------
+TYPE-POOLS: ole2.
+
+CONSTANTS: c_header_pattern(13)    TYPE c VALUE 'P_CABECALHO-*',
+           c_items_pattern(10)     TYPE c VALUE 'WA_ITENS-*'.
+
+CONSTANTS: c_report_sheet TYPE /pws/zycrl008 VALUE 'REPORT'.
+
+CONSTANTS: xl_op_create_sheet(1) TYPE x VALUE 2,
+           xl_op_new_page(1)     TYPE x VALUE 1,
+           xl_op_fill_field(1)   TYPE x VALUE 3.
+
+CONSTANTS: ole_true  TYPE i VALUE -1,
+           ole_false TYPE i VALUE 0.
+
+TYPES: generation_option(2) TYPE x.
+
+CONSTANTS:
+* Imprimir após gerar relatório. Se for necessário especificar uma
+* impressora, passar o nome como argumento.
+  xl_print_after_generate TYPE generation_option VALUE 1,
+
+* Exibe o diálogo de pre-visualização de impressão após gerar o
+* relatório.
+  xl_prn_prev_after_generate TYPE generation_option VALUE 2,
+
+* Não exibe o relatório após a geração.
+  xl_dont_show_after_generate TYPE generation_option VALUE 3,
+
+* Cria um e-mail com o arquivo .xls anexo.
+  xl_email_file_after_generate TYPE generation_option VALUE 4,
+
+* Carrega o arquivo no BDS: Implica inclusão de
+* xl_dont_show_after_generate e exclusão de xl_prn_prev_after_generate
+  xl_upload_report_into_bds TYPE generation_option VALUE 5,
+
+* Destinatário do e-mail
+  xl_email_recipients TYPE generation_option VALUE 6,
+
+* Assunto do e-mail
+  xl_email_subject TYPE generation_option VALUE 7,
+
+* Chave do report
+  xl_report_key TYPE generation_option VALUE 254,
+
+* Chave do processo
+  xl_process_key TYPE generation_option VALUE 255,
+
+* Grupo de itens
+  xl_items_group TYPE generation_option VALUE 256,
+
+* Valor personalizáveis 1 a 9
+  xl_custom_val_1 TYPE generation_option VALUE 257,
+  xl_custom_val_2 TYPE generation_option VALUE 258,
+  xl_custom_val_3 TYPE generation_option VALUE 259,
+  xl_custom_val_4 TYPE generation_option VALUE 260,
+  xl_custom_val_5 TYPE generation_option VALUE 261,
+  xl_custom_val_6 TYPE generation_option VALUE 262,
+  xl_custom_val_7 TYPE generation_option VALUE 263,
+  xl_custom_val_8 TYPE generation_option VALUE 264,
+  xl_custom_val_9 TYPE generation_option VALUE 265,
+
+* Palavras chave do documento para pesquisa no BDS
+  xl_bds_keywords TYPE generation_option VALUE 266.
+
+TYPES: BEGIN OF s_generation_options,
+         option        TYPE generation_option,
+         argument(255) TYPE c,
+       END OF s_generation_options.
+
+TYPES: t_generation_options TYPE STANDARD TABLE OF s_generation_options.
+
+TYPES: BEGIN OF s_rep_fields,
+         field      TYPE /pws/zycrt015-field,
+         curr_field TYPE /pws/zycrt015-curr_field,
+         unit_field TYPE /pws/zycrt015-unit_field,
+         edit_mask  TYPE /pws/zycrt015-edit_mask,
+       END OF s_rep_fields.
+
+TYPES: t_rep_fields TYPE HASHED TABLE OF s_rep_fields
+                    WITH UNIQUE KEY field.
+
+TYPES: s_matrix TYPE /pws/zycrt014,
+
+       t_matrix TYPE STANDARD TABLE OF s_matrix
+                WITH NON-UNIQUE KEY report_module
+                                    report_id
+                                    matrix
+                                    sheet
+                                    row_position
+                                    column_position.
+
+TYPES: BEGIN OF s_sect_height,
+         sheet     TYPE /pws/zycrt017-sheet,
+         row_index TYPE /pws/zycrt017-row_index,
+         height    TYPE /pws/zycrt017-height,
+       END OF s_sect_height,
+
+       t_sect_height TYPE SORTED TABLE OF s_sect_height
+                          WITH UNIQUE KEY sheet
+                                          row_index.
+
+TYPES: BEGIN OF s_excel_content,
+         sheet           TYPE /pws/zycrl008,
+         row             TYPE i,
+         column          TYPE i,
+         value(255)      TYPE c,
+         operation(1)    TYPE x,
+         height          TYPE f,
+       END OF s_excel_content,
+
+       t_excel_content TYPE STANDARD TABLE OF s_excel_content
+                       WITH NON-UNIQUE KEY sheet
+                                           row
+                                           column.
+
+TYPES: BEGIN OF s_rows_height_adjust,
+         row    TYPE i,
+         height TYPE f,
+         adjust TYPE f,
+       END OF s_rows_height_adjust,
+
+       t_rows_height_adjust TYPE STANDARD TABLE OF s_rows_height_adjust
+                            WITH NON-UNIQUE KEY row.
+
+*Chamado -  385209 - Início
+*Estrutura para formatação dos códigos
+*para guardar os read texts.
+TYPES: BEGIN OF s_format_codigo,
+        vbeln_vf     TYPE /pws/zycre018-vbeln_vf,
+        posnr        TYPE /pws/zycre018-posnr,
+        vbeln_vl     TYPE /pws/zycre018-vbeln_vl,
+        posnl        TYPE /pws/zycre018-posnl,
+        vbeln_va     TYPE /pws/zycre018-vbeln_va,
+        aupos        TYPE /pws/zycre018-aupos,
+        matnr        TYPE /pws/zycre018-matnr,
+        vkorg_auft   TYPE /pws/zycre018-vkorg_auft,
+        vtweg_auft   TYPE /pws/zycre018-vtweg_auft,
+        nrseqtr      TYPE /pws/zycet046-nrseqtr,
+        nrrota_tr    TYPE /pws/zycre018-nrrota_tr,
+       END OF s_format_codigo,
+       t_format_codigo TYPE STANDARD TABLE OF s_format_codigo.
+*Chamado -  385209 - Fim
+
+INCLUDE /pws/zycri005.
+
+* --------------------------------------------------------------------
+* Form get_occupied_rows
+* --------------------------------------------------------------------
+* Objetivo: Retorna o número de linhas necessárias para uma string
+*           em um campo com largura conhecida
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_string     Cadeia de caracteres
+*     p_width      Largura do campo
+* <-- p_row_count  Número de linhas
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM get_occupied_rows                                      "#EC CALLED
+     USING
+        p_string    TYPE c
+        p_width     TYPE i
+     CHANGING
+        p_row_count TYPE i.
+
+  DATA: string_length    TYPE i,
+        string_index     TYPE i,
+        current_char(1)  TYPE c,
+        line_index       TYPE i,
+        last_break_index TYPE i VALUE -1.
+
+  string_length = numofchar( p_string ).
+
+  IF string_length < p_width.
+
+    p_row_count = 1.
+
+    EXIT.
+
+  ENDIF.
+
+  WHILE string_index < string_length.
+
+    string_index = sy-index - 1.
+
+    current_char = p_string+string_index(1).
+
+    string_index = string_index + 1.
+
+    ADD 1 TO line_index.
+
+    IF current_char CA ' -'.
+
+      last_break_index = line_index.
+
+    ENDIF.
+
+    IF line_index > p_width.
+
+      IF last_break_index > 0.
+
+        line_index = line_index - last_break_index.
+
+      ELSE.
+
+        line_index = 1.
+
+      ENDIF.
+
+      ADD 1 TO p_row_count.
+
+      last_break_index = -1.
+
+    ENDIF.
+
+    IF sy-index = 1.
+
+      p_row_count = p_row_count + 1.
+
+    ENDIF.
+
+  ENDWHILE.
+
+ENDFORM.                    " get_occupied_rows
+
+* --------------------------------------------------------------------
+* Form select_row_height_cache
+* --------------------------------------------------------------------
+* Objetivo: Montar a tabela de altura das linhas de um arquivo
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_file_id       Identificação do arquivo
+* <-- p_t_row_height  Tabela de alturas das linhas do arquivo
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM select_row_height_cache                                "#EC CALLED
+     USING
+        p_file_spras   TYPE /pws/zycrt009-spras
+        p_file_id      TYPE /pws/zycrt009-file_id
+     CHANGING
+        p_t_row_height TYPE t_sect_height.
+
+  SELECT sheet
+         row_index
+         height
+      INTO TABLE p_t_row_height[]
+      FROM /pws/zycrt017
+      WHERE spras   = p_file_spras
+        AND file_id = p_file_id.
+
+  IF sy-subrc <> 0.
+
+    MESSAGE e032(/pws/zycrm) WITH p_file_spras p_file_id.
+
+  ENDIF.
+
+ENDFORM.                    " select_row_height_cache
+
+* --------------------------------------------------------------------
+* Form get_section_height
+* --------------------------------------------------------------------
+* Objetivo: Retornar a altura de uma seção
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_worksheet_name  Nome da planilha
+*     p_t_row_height    Tabela de altura de linhas do arquivo
+* <-- p_section_height  Altura da seção
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM get_section_height                                     "#EC CALLED
+     USING
+        p_worksheet_name TYPE /pws/zycrt017-sheet
+        p_t_row_height   TYPE t_sect_height
+     CHANGING
+        p_section_height TYPE /pws/zycrt017-height.
+
+  DATA: wa_row_height LIKE LINE OF p_t_row_height[].
+
+  READ TABLE p_t_row_height[] INTO wa_row_height
+       WITH TABLE KEY sheet     = p_worksheet_name
+                      row_index = 0
+       TRANSPORTING height.
+
+  IF sy-subrc = 0.
+
+    p_section_height = wa_row_height-height.
+
+  ELSE.
+
+    p_section_height = 0.
+
+  ENDIF.
+
+ENDFORM.                    " get_section_height
+
+* --------------------------------------------------------------------
+* Form get_section_rows
+* --------------------------------------------------------------------
+* Objetivo: Retornar o número de linhas em uma seção
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_worksheet_name  Nome da planilha
+*     p_t_row_height    Tabela de altura de linhas do arquivo
+* <-- p_section_rows    Número de linhas na seção
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM get_section_rows                                       "#EC CALLED
+     USING
+        p_worksheet_name TYPE /pws/zycrt017-sheet
+        p_t_row_height   TYPE t_sect_height
+     CHANGING
+        p_section_rows   TYPE i.
+
+  CLEAR p_section_rows.
+
+  LOOP AT p_t_row_height
+      TRANSPORTING NO FIELDS
+      WHERE sheet = p_worksheet_name
+        AND row_index > 0.
+
+    ADD 1 TO p_section_rows.
+
+  ENDLOOP.
+
+ENDFORM.                    " get_section_rows
+
+* --------------------------------------------------------------------
+* Form append_new_section
+* --------------------------------------------------------------------
+* Objetivo: Incluir o código correspondente a criação de seção
+*           na tabela de dados para o Excel
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_sheet_name       Nome da planilha
+*     p_row              Índice da linha da nova seção
+* <-- p_t_excel_content  Tabela de dados para o Excel
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM append_new_section                                     "#EC CALLED
+     USING
+        p_sheet_name      TYPE /pws/zycrl008
+        p_row             TYPE i
+     CHANGING
+        p_t_excel_content TYPE t_excel_content.
+
+  DATA: wa_excel_content LIKE LINE OF p_t_excel_content[].
+
+  wa_excel_content-sheet     = p_sheet_name.
+  wa_excel_content-row       = p_row.
+  wa_excel_content-operation = xl_op_create_sheet.
+
+  APPEND wa_excel_content TO p_t_excel_content[].
+
+ENDFORM.                    " append_new_section
+
+* --------------------------------------------------------------------
+* Form fill_header_fields
+* --------------------------------------------------------------------
+* Objetivo: Preencher campos de uma estrutura em uma seção. A altura
+*           da seção não é alterada.
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_header           Estrutura de dados
+*     p_sheet            Nome da planilha
+*     p_current_row      Índice da 1ª linha da seção
+*     p_t_matrix         Matriz de dados do report
+*     p_t_rep_fields     Campos disponíveis no programa
+* <-- p_t_excel_content  Dados para o Excel
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM fill_header_fields                                     "#EC CALLED
+     USING
+        p_header          TYPE any
+        p_sheet           TYPE /pws/zycrl008
+        p_current_row     TYPE i
+        p_t_matrix        TYPE t_matrix
+        p_t_rep_fields    TYPE t_rep_fields
+     CHANGING
+        p_t_excel_content TYPE t_excel_content.
+
+  DATA: wa_matrix        LIKE LINE OF p_t_matrix[],
+        wa_excel_content LIKE LINE OF p_t_excel_content[].
+
+  DATA: displacement TYPE i,
+        subrc        TYPE sy-subrc.
+
+  displacement = p_current_row - 1.
+
+  LOOP AT p_t_matrix[]
+       INTO wa_matrix
+       WHERE sheet =  p_sheet
+         AND field CP c_header_pattern.
+
+    wa_excel_content-operation = xl_op_fill_field.
+
+    wa_excel_content-sheet = p_sheet.
+
+    wa_excel_content-row = wa_matrix-row_position + displacement.
+
+    wa_excel_content-column = wa_matrix-column_position.
+
+    PERFORM write_field_to_char
+            USING
+               p_header
+               wa_matrix-field
+               p_t_rep_fields[]
+            CHANGING
+               wa_excel_content-value
+               subrc.
+
+    IF subrc = 0.
+
+      APPEND wa_excel_content TO p_t_excel_content[].
+
+    ENDIF.
+
+  ENDLOOP.
+
+ENDFORM.                    " fill_header_fields
+
+* --------------------------------------------------------------------
+* Form build_excel_report
+* --------------------------------------------------------------------
+* Objetivo: Criar um report no Excel
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_file_name             Caminho completo para o arquivo
+*     p_report_sheet_name     Nome da planilha de report
+*     p_report_sheet_password Senha da planilha de report
+*     p_t_excel_content       Dados para Excel
+*     p_t_sections            Altura das linhas do arquivo
+* <-- <nenhum>
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM build_excel_report                                     "#EC CALLED
+     USING
+        p_file_name             TYPE c
+        p_report_sheet_name     TYPE /pws/zycrl008
+        p_report_sheet_password TYPE c
+        p_t_excel_content       TYPE t_excel_content
+        p_t_sections            TYPE t_sect_height
+        p_t_options             TYPE t_generation_options.
+
+  DATA: wa_excel_content LIKE LINE OF p_t_excel_content[],
+        wa_options       LIKE LINE OF p_t_options[].
+
+  DATA: wa_bds_upload_info TYPE s_bds_upload_info,
+        it_bds_keywords    TYPE TABLE OF s_bds_keywords,
+        bds_doc_id         TYPE bds_docid,
+        bds_doc_ver_no     TYPE bds_dverno,
+        bds_doc_var_id     TYPE bds_dvarid.
+
+  STATICS: application   TYPE ole2_object, " Excel
+           workbook      TYPE ole2_object, " Pasta de trabalho
+           report_sheet  TYPE ole2_object, " Planilha do report
+           page_breaks   TYPE ole2_object. " Quebras de página
+
+* Abre o Excel e inicializa para exibição
+  PERFORM xl_create_and_initialize_excel
+          CHANGING
+             application.
+
+* Abre uma pasta de trabalho
+  PERFORM xl_open_file
+          USING
+             application
+             p_file_name
+          CHANGING
+             workbook.
+
+* Recupera a planilha de report
+  PERFORM xl_get_worksheet
+          USING
+             workbook
+             p_report_sheet_name
+          CHANGING
+             report_sheet.
+
+* Retorna o objeto de quebras de página da planilha de report
+  PERFORM xl_get_page_breaks
+          USING
+             report_sheet
+          CHANGING
+             page_breaks.
+
+  LOOP AT p_t_excel_content INTO wa_excel_content.
+
+    CASE wa_excel_content-operation.
+
+      WHEN xl_op_fill_field.
+
+*       Preenche uma célula
+        PERFORM xl_fill_field
+                USING
+                   wa_excel_content
+                   report_sheet.
+
+      WHEN xl_op_create_sheet.
+
+*       Copia uma nova planilha-modelo para a planilha de report
+        PERFORM xl_copy_sheet
+                USING
+                   wa_excel_content-sheet
+                   wa_excel_content-row
+                   report_sheet
+                   workbook.
+
+      WHEN xl_op_new_page.
+
+*       Insere uma quebra de página na planilha de report
+        PERFORM xl_add_page_break
+                USING
+                   report_sheet
+                   wa_excel_content-row
+                   page_breaks.
+
+    ENDCASE.
+
+  ENDLOOP.
+
+* Prepara o report para exibição
+  PERFORM xl_prepare_to_show
+          USING
+             application
+             workbook
+             report_sheet
+             p_report_sheet_name
+             p_t_sections.
+
+* Define a senha do report
+  IF NOT p_report_sheet_password IS INITIAL.
+
+    PERFORM xl_protect_sheet
+            USING
+               p_report_sheet_password
+               report_sheet.
+
+  ENDIF.
+
+
+* Salva o report
+  PERFORM xl_save_workbook
+          USING
+             workbook.
+
+
+  READ TABLE p_t_options INTO wa_options
+       WITH KEY option = xl_print_after_generate
+       TRANSPORTING argument.
+
+  IF sy-subrc = 0.
+
+    IF NOT wa_options-argument IS INITIAL.
+
+*     Define a impressora ativa
+      PERFORM xl_set_active_printer
+              USING
+                application
+                wa_options-argument.
+
+    ENDIF.
+
+*   Imprime a planilha de report
+    PERFORM xl_print_worksheet
+            USING
+              report_sheet.
+
+  ENDIF.
+
+  READ TABLE p_t_options TRANSPORTING NO FIELDS
+       WITH KEY option = xl_prn_prev_after_generate.
+
+  IF sy-subrc = 0.
+
+*   Exibe o report
+    PERFORM xl_show_report
+            USING
+               application.
+
+*   Exibe o diálogo de pré-visualização de impressão
+    PERFORM xl_show_print_preview
+            USING
+              report_sheet.
+
+  ENDIF.
+
+  READ TABLE p_t_options TRANSPORTING NO FIELDS
+       WITH KEY option = xl_email_file_after_generate.
+
+  IF sy-subrc = 0.
+
+*   Envia o arquivo .XLS via e-mail
+    PERFORM xl_email_workbook
+            USING
+              application
+              p_t_options[].
+
+  ENDIF.
+
+  PERFORM unpack_single_argument
+        USING
+          p_t_options[]
+          xl_upload_report_into_bds
+        CHANGING
+          wa_bds_upload_info.
+
+  PERFORM check_argument_exists
+          USING
+            p_t_options[]
+            xl_dont_show_after_generate.
+
+  IF sy-subrc <> 0 AND wa_bds_upload_info IS INITIAL.
+
+*   Exibe o report
+    PERFORM xl_show_report
+            USING
+               application.
+
+  ELSE.
+
+    CALL METHOD OF application 'QUIT'.                      "#EC NEEDED
+
+  ENDIF.
+
+* Libera os objetos de automação
+  FREE OBJECT: page_breaks   NO FLUSH,
+               report_sheet  NO FLUSH,
+               workbook      NO FLUSH.
+
+* Despacha a fila de automação
+  CALL METHOD cl_gui_cfw=>flush
+       EXCEPTIONS
+          cntl_system_error = 1
+          cntl_error        = 2
+          OTHERS            = 3.
+
+  IF sy-subrc <> 0.
+
+    CALL METHOD OF application 'QUIT'.
+
+    FREE OBJECT application.
+
+    MESSAGE e001(/pws/zycrm).
+
+  ENDIF.
+
+  FREE OBJECT application.
+
+  IF NOT wa_bds_upload_info IS INITIAL.
+
+    PERFORM unpack_table_argument
+            USING
+              p_t_options[]
+              xl_bds_keywords
+            CHANGING
+              it_bds_keywords[].
+
+    PERFORM bds_fill_description_mask
+            USING
+              wa_bds_upload_info-spras
+              p_t_options[]
+            CHANGING
+              wa_bds_upload_info-description.
+
+    PERFORM bds_upload_file
+            USING
+              wa_bds_upload_info
+              it_bds_keywords[]
+              p_file_name
+            CHANGING
+              bds_doc_id
+              bds_doc_ver_no
+              bds_doc_var_id.
+
+
+    PERFORM check_argument_exists
+            USING
+               p_t_options[]
+               xl_dont_show_after_generate.
+
+    IF sy-subrc <> 0.
+
+      PERFORM bds_show_file_in_navigator
+              USING
+                wa_bds_upload_info
+                bds_doc_id
+                bds_doc_ver_no
+                bds_doc_var_id.
+
+    ENDIF.
+
+  ENDIF.
+
+ENDFORM.                    " build_excel_report
+
+* --------------------------------------------------------------------
+* Form xl_create_and_initialize_excel
+* --------------------------------------------------------------------
+* Objetivo: Criar e preparar o Excel para execução em segundo plano.
+*           Exibe mensagem de erro se não for possível iniciar o
+*           Excel.
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_application  Objeto OLE: Excel
+* <-- <nenhum>
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM xl_create_and_initialize_excel                         "#EC CALLED
+     CHANGING
+        p_application TYPE ole2_object.
+
+  CREATE OBJECT p_application 'EXCEL.APPLICATION'.
+
+  IF sy-subrc <> 0.
+
+    MESSAGE e027.
+
+  ELSE.
+
+*   Minimza o janela do Excel
+    SET PROPERTY OF p_application
+    'WINDOWSTATE' = -4140 no flush.                         "#EC NEEDED
+
+*   Bloqueia a janela do Excel
+    SET PROPERTY OF p_application 'INTERACTIVE' = ole_false no flush.
+
+*   Bloqueia avisos do Excel
+    SET PROPERTY OF p_application 'DISPLAYALERTS' = ole_false no flush.
+
+*   Bloqueia atualizações na janela do Excel
+    SET PROPERTY OF p_application 'SCREENUPDATING' = ole_false no flush.
+
+*   Torna o Excel visível
+    SET PROPERTY OF p_application 'VISIBLE' = ole_true no flush.
+
+  ENDIF.
+
+ENDFORM.                    " xl_create_and_initialize_excel
+
+* --------------------------------------------------------------------
+* Form xl_open_file
+* --------------------------------------------------------------------
+* Objetivo: Abre um arquivo no Excel
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_application  Objeto OLE: Excel
+*     p_file_name    Nome do arquivo a ser aberto
+* <-- p_workbook     Objeto OLE: Pasta de Trabalho
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM xl_open_file                                           "#EC CALLED
+     USING
+        p_application TYPE ole2_object
+        p_file_name   TYPE c
+     CHANGING
+        p_workbook    TYPE ole2_object.
+
+  STATICS: workbooks TYPE ole2_object.
+
+
+  GET PROPERTY OF p_application 'WORKBOOKS' = workbooks no flush.
+
+  CALL METHOD OF workbooks 'OPEN' = p_workbook NO FLUSH
+       EXPORTING
+          #1 = p_file_name.
+
+
+  FREE OBJECT workbooks NO FLUSH.
+
+ENDFORM.                    " xl_open_file
+
+* --------------------------------------------------------------------
+* Form xl_get_worksheet
+* --------------------------------------------------------------------
+* Objetivo: Seleciona uma planilha da pasta de trabalho
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_workbook    Objeto OLE: Pasta de trabalho
+*     p_sheet_name  Nome da planilha a ser selecionada
+* <-- p_worksheet   Objeto OLE: Planilha
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM xl_get_worksheet                                       "#EC CALLED
+     USING
+        p_workbook   TYPE ole2_object
+        p_sheet_name TYPE c
+     CHANGING
+        p_worksheet   TYPE ole2_object.
+
+  CALL METHOD OF p_workbook 'WORKSHEETS' = p_worksheet NO FLUSH
+       EXPORTING
+          #1 = p_sheet_name.
+
+ENDFORM.                    " xl_get_worksheet
+
+* --------------------------------------------------------------------
+* Form xl_get_page_breaks
+* --------------------------------------------------------------------
+* Objetivo: Retorna o objeto de quebras de páginas horizontais
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_worksheet    Objeto OLE: Planilha
+* <-- p_page_breaks  Objeto OLE: Quebras de página horizontais
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM xl_get_page_breaks                                     "#EC CALLED
+     USING
+        p_worksheet   TYPE ole2_object
+     CHANGING
+        p_page_breaks TYPE ole2_object.
+
+  GET PROPERTY OF p_worksheet
+  'HPAGEBREAKS' = p_page_breaks no flush.                   "#EC NEEDED
+
+ENDFORM.                    " xl_get_page_breaks
+
+* --------------------------------------------------------------------
+* Form xl_fill_field
+* --------------------------------------------------------------------
+* Objetivo: Preencher um célula
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_excel_content  Estrutura de preenchimento da célula
+*     p_worksheet      Objeto OLE: Planilha
+* <-- <nenhum>
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM xl_fill_field                                          "#EC CALLED
+     USING
+        p_excel_content TYPE s_excel_content
+        p_worksheet     TYPE ole2_object.
+
+  STATICS: cell TYPE ole2_object.
+
+
+  PERFORM xl_get_cell
+          USING
+             p_worksheet
+             p_excel_content-row
+             p_excel_content-column
+          CHANGING
+             cell.
+
+  PERFORM xl_set_cell_value
+          USING
+             cell
+             p_excel_content-value.
+
+  IF p_excel_content-height > 0.
+
+    PERFORM xl_set_row_height
+            USING
+               p_worksheet
+               p_excel_content-row
+               p_excel_content-height.
+
+  ENDIF.
+
+
+  FREE OBJECT cell NO FLUSH.
+
+ENDFORM.                    " xl_fill_field
+
+* --------------------------------------------------------------------
+* Form xl_copy_sheet
+* --------------------------------------------------------------------
+* Objetivo: Copiar uma seção (parte de uma planilha) para outra
+*           planilha.
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_from_sheet_name  Nome da planilha de origem
+*     p_to_row           Índice da linha de destino
+*     p_to_worksheet     Objeto OLE: Planilha de destino
+*     p_workbook         Objeto OLE: Pasta de trabalho
+* <-- <nenhum>
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM xl_copy_sheet                                          "#EC CALLED
+     USING
+        p_from_sheet_name TYPE c
+        p_to_row          TYPE i
+        p_to_worksheet    TYPE ole2_object
+        p_workbook        TYPE ole2_object.
+
+  STATICS: cell        TYPE ole2_object,
+           worksheet   TYPE ole2_object,
+           print_range TYPE ole2_object.
+
+
+  PERFORM xl_get_cell
+          USING
+             p_to_worksheet
+             p_to_row
+             1
+          CHANGING
+             cell.
+
+  PERFORM xl_get_worksheet
+          USING
+             p_workbook
+             p_from_sheet_name
+          CHANGING
+             worksheet.
+
+  PERFORM xl_get_print_range
+          USING
+             worksheet
+          CHANGING
+             print_range.
+
+  CALL METHOD OF print_range 'COPY' NO FLUSH
+       EXPORTING
+          #1 = cell.                                        "#EC NEEDED
+
+
+  FREE OBJECT: print_range NO FLUSH,
+               worksheet   NO FLUSH,
+               cell        NO FLUSH.
+
+ENDFORM.                    " xl_copy_sheet
+
+* --------------------------------------------------------------------
+* Form xl_add_page_break
+* --------------------------------------------------------------------
+* Objetivo: Adicionar uma quebra de página manual
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_worksheet    Objeto OLE: Planilha
+*     p_row          Índice da linha a inserir a quebra
+*     p_page_breaks  Objeto OLE: Quebras de página da planilha
+* <-- <nenhum>
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM xl_add_page_break                                      "#EC CALLED
+     USING
+        p_worksheet   TYPE ole2_object
+        p_row         TYPE i
+        p_page_breaks TYPE ole2_object.
+
+  STATICS: cell TYPE ole2_object.
+
+  PERFORM xl_get_cell
+          USING
+             p_worksheet
+             p_row
+             1
+          CHANGING
+             cell.
+
+  CALL METHOD OF p_page_breaks 'ADD' NO FLUSH
+       EXPORTING
+          #1 = cell.                                        "#EC NEEDED
+
+  FREE OBJECT cell NO FLUSH.
+
+ENDFORM.                    " xl_add_page_break
+
+* --------------------------------------------------------------------
+* Form xl_prepare_to_show
+* --------------------------------------------------------------------
+* Objetivo: Prepara o arquivo para exibição: Apaga as seções já
+*           utilizadas, posiciona o cursor na célula A1 e limpa a
+*           área de impressão do report.
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_application        Objeto OLE: Excel
+*     p_workbook           Objeto OLE: Pasta de trabalho
+*     p_report_sheet       Objeto OLE: Planilha de report
+*     p_report_sheet_name  Nome da planilha de report
+*     p_t_sections         Tabela de altura de linhas do arquivo
+* <-- <nenhum>
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM xl_prepare_to_show                                     "#EC CALLED
+     USING
+        p_application        TYPE ole2_object
+        p_workbook           TYPE ole2_object
+        p_report_sheet       TYPE ole2_object
+        p_report_sheet_name  TYPE c
+        p_t_sections         TYPE t_sect_height.
+
+  STATICS: go_to_reference(255) TYPE c.
+
+  STATICS: page_setup TYPE ole2_object.
+
+  DATA: wa_section LIKE LINE OF p_t_sections[].
+
+*  DATA: it_delete_sheets TYPE SORTED TABLE OF /pws/zycrl008
+*                         WITH UNIQUE KEY table_line.
+  DATA: it_delete_sheets TYPE TABLE OF /pws/zycrl008.
+
+* Elimina as seções (planilhas-modelo)
+  LOOP AT p_t_sections INTO wa_section.
+
+    AT NEW sheet.
+
+      COLLECT wa_section-sheet INTO it_delete_sheets[].
+
+    ENDAT.
+
+  ENDLOOP.
+
+  SORT: it_delete_sheets BY table_line.
+  LOOP AT it_delete_sheets[] INTO wa_section-sheet
+                             WHERE table_line <> p_report_sheet_name.
+
+    PERFORM xl_delete_sheet
+          USING
+             wa_section-sheet
+             p_workbook.
+
+  ENDLOOP.
+
+* Posiciona o cursor na 1ª célula da planilha final
+  CONCATENATE p_report_sheet_name '!R1C1' INTO go_to_reference.
+
+  CALL METHOD OF p_application 'GOTO' NO FLUSH
+       EXPORTING
+          #1 = go_to_reference
+          #2 = ole_true.
+
+* Limpa a área de impressão da planilha da planilha final
+  GET PROPERTY OF p_report_sheet 'PAGESETUP' = page_setup no flush.
+
+  SET PROPERTY OF page_setup 'PRINTAREA' = '' no flush.
+
+
+* Libera objetos de automação
+  FREE OBJECT page_setup NO FLUSH.
+
+ENDFORM.                    " xl_prepare_to_show
+
+* --------------------------------------------------------------------
+* Form xl_protect_sheet
+* --------------------------------------------------------------------
+* Objetivo: Define uma senha para uma planilha
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_password   Senha
+* <-- p_worksheet  Objeto OLE: Planilha
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM xl_protect_sheet                                       "#EC CALLED
+     USING
+        p_password  TYPE c
+        p_worksheet TYPE ole2_object.
+
+  CALL METHOD OF p_worksheet 'PROTECT' NO FLUSH
+       EXPORTING
+          #1 = p_password.                                  "#EC NEEDED
+
+ENDFORM.                    " xl_protect_sheet
+
+* --------------------------------------------------------------------
+* Form xl_save_workbook
+* --------------------------------------------------------------------
+* Objetivo: Salva uma pasta de trabalho já criada.
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_workbook  Objeto OLE: Pasta de trabalho
+* <-- <nenhum>
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM xl_save_workbook                                       "#EC CALLED
+     USING
+        p_workbook TYPE ole2_object.
+
+  CALL METHOD OF p_workbook 'SAVE' NO FLUSH.                "#EC NEEDED
+
+ENDFORM.                    " xl_save_workbook
+
+* --------------------------------------------------------------------
+* Form xl_show_report
+* --------------------------------------------------------------------
+* Objetivo: Prepara o Excel para sair de segundo plano e se tornar
+*           visível novamente.
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_application  Objeto OLE: Excel
+* <-- <nenhum>
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM xl_show_report                                         "#EC CALLED
+     USING
+        p_application TYPE ole2_object.
+
+  SET PROPERTY OF p_application
+  'SCREENUPDATING' = ole_true no flush.                     "#EC NEEDED
+
+  SET PROPERTY OF p_application
+  'INTERACTIVE' = ole_true no flush.                        "#EC NEEDED
+
+  SET PROPERTY OF p_application
+  'WINDOWSTATE' = -4137 no flush.                           "#EC NEEDED
+
+  SET PROPERTY OF p_application
+  'DISPLAYALERTS' = ole_true no flush.                      "#EC NEEDED
+
+ENDFORM.                    " xl_show_report
+
+* --------------------------------------------------------------------
+* Form xl_get_cell
+* --------------------------------------------------------------------
+* Objetivo: Retorna uma célula da planilha
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_worksheet  Objeto OLE: Pasta de trabalho
+*     p_row        Índice da linha
+*     p_column     Índice da coluna
+* <-- p_cell       Objeto OLE: Célula
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM xl_get_cell                                            "#EC CALLED
+     USING
+        p_worksheet TYPE ole2_object
+        p_row       TYPE i
+        p_column    TYPE i
+     CHANGING
+        p_cell      TYPE ole2_object.
+
+  CALL METHOD OF p_worksheet 'CELLS' = p_cell NO FLUSH
+       EXPORTING
+          #1 = p_row
+          #2 = p_column.
+
+ENDFORM.                    " xl_get_cell
+
+* --------------------------------------------------------------------
+* Form xl_set_cell_value
+* --------------------------------------------------------------------
+* Objetivo: Define o conteúdo de uma célula
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_cell   Objeto OLE: Célula
+* <-- p_value  Conteúdo
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM xl_set_cell_value
+     USING
+        p_cell  TYPE ole2_object
+        p_value TYPE c.
+
+  SET PROPERTY OF p_cell 'VALUE' = p_value no flush.        "#EC NEEDED
+
+ENDFORM.                    " xl_set_cell_value
+
+* --------------------------------------------------------------------
+* Form xl_get_print_range
+* --------------------------------------------------------------------
+* Objetivo: Retorna um range com a área de impressão de uma planilha
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_worksheet    Objeto OLE: Planilha
+* <-- p_print_range  Objeto OLE: Área de impressão (Range)
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM xl_get_print_range                                     "#EC CALLED
+     USING
+        p_worksheet   TYPE ole2_object
+     CHANGING
+        p_print_range TYPE ole2_object.
+
+  STATICS: page_setup TYPE ole2_object.
+
+  STATICS: print_area(255) TYPE c.
+
+
+  GET PROPERTY OF p_worksheet 'PAGESETUP' = page_setup no flush.
+
+  GET PROPERTY OF page_setup 'PRINTAREA' = print_area no flush.
+
+  CALL METHOD OF p_worksheet 'RANGE' = p_print_range NO FLUSH
+       EXPORTING
+          #1 = print_area.
+
+
+  FREE OBJECT page_setup NO FLUSH.
+
+ENDFORM.                    " xl_get_print_range
+
+* --------------------------------------------------------------------
+* Form xl_set_row_height
+* --------------------------------------------------------------------
+* Objetivo: Define a altura de uma linha da planilha
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_worksheet  OLE Object: Planilha
+*     p_row        Índice da linha
+*     p_height     Altura da linha em pontos
+* <-- <nenhum>
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM xl_set_row_height                                      "#EC CALLED
+     USING
+        p_worksheet TYPE ole2_object
+        p_row       TYPE i
+        p_height    TYPE f.
+
+  STATICS: row TYPE ole2_object.
+
+
+  GET PROPERTY OF p_worksheet 'ROWS' = row no flush
+      exporting
+         #1 = p_row.
+
+  SET PROPERTY OF row 'ROWHEIGHT' = p_height no flush.
+
+
+  FREE OBJECT row NO FLUSH.
+
+ENDFORM.                    " xl_set_row_height
+
+* --------------------------------------------------------------------
+* Form xl_delete_sheet
+* --------------------------------------------------------------------
+* Objetivo: Exclui uma planilha da pasta de trabalho
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_sheet_name  Nome da planilha
+*     p_workbook    Pasta de trabalho
+* <-- <nenhum>
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM xl_delete_sheet                                        "#EC CALLED
+     USING
+        p_sheet_name TYPE c
+        p_workbook   TYPE ole2_object.
+
+  STATICS: worksheet TYPE ole2_object.
+
+
+  PERFORM xl_get_worksheet
+          USING
+             p_workbook
+             p_sheet_name
+          CHANGING
+             worksheet.
+
+  CALL METHOD OF worksheet 'DELETE' NO FLUSH.               "#EC NEEDED
+
+
+  FREE OBJECT worksheet NO FLUSH.
+
+ENDFORM.                    " xl_delete_sheet
+
+* --------------------------------------------------------------------
+* Form xl_print_worksheet
+* --------------------------------------------------------------------
+* Objetivo: Imprime uma planilha
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_worksheet  Objeto planilha
+* <-- <nenhum>
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      22/02/2007      Codificação inicial
+* --------------------------------------------------------------------
+FORM xl_print_worksheet                                     "#EC CALLED
+     USING
+       p_worksheet TYPE ole2_object.
+
+  CALL METHOD OF p_worksheet 'PRINTOUT' NO FLUSH.           "#EC NEEDED
+
+ENDFORM.                    " xl_print_worksheet
+
+* --------------------------------------------------------------------
+* Form xl_show_print_preview
+* --------------------------------------------------------------------
+* Objetivo: Exibe o diálogo de pré-visualização de impressão para uma
+*           planilha
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_worksheet  Objeto planilha
+* <-- <nenhum>
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      22/02/2007      Codificação inicial
+* --------------------------------------------------------------------
+FORM xl_show_print_preview                                  "#EC CALLED
+     USING
+       p_worksheet TYPE ole2_object.
+
+  CALL METHOD OF p_worksheet 'PRINTPREVIEW' NO FLUSH.       "#EC NEEDED
+
+
+ENDFORM.                    " xl_show_print_preview
+
+* --------------------------------------------------------------------
+* Form xl_set_active_printer
+* --------------------------------------------------------------------
+* Objetivo: Define a impressora ativa
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_application   Objeto Excel
+*     p_printer_name  Nome da impressora no Excel
+* <-- <nenhum>
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      22/02/2007      Codificação inicial
+* --------------------------------------------------------------------
+FORM xl_set_active_printer                                  "#EC CALLED
+     USING
+       p_application  TYPE ole2_object
+       p_printer_name TYPE char255.
+
+  SET PROPERTY OF p_application 'ACTIVEPRINTER' = p_printer_name
+                                no flush.                   "#EC NEEDED
+
+ENDFORM.                    " xl_set_active_printer
+
+* --------------------------------------------------------------------
+* Form xl_get_active_printer
+* --------------------------------------------------------------------
+* Objetivo: Retorna a impressora ativa
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_application   Objeto Excel
+* <-- p_printer_name  Nome da impressora no Excel
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      22/02/2007      Codificação inicial
+* --------------------------------------------------------------------
+FORM xl_get_active_printer                                  "#EC CALLED
+     USING
+       p_application  TYPE ole2_object
+     CHANGING
+       p_printer_name TYPE char255.
+
+  GET PROPERTY OF p_application
+  'PRINTOUT' = p_printer_name no flush.                     "#EC NEEDED
+
+ENDFORM.                    " xl_get_active_printer
+
+*---------------------------------------------------------------------*
+*       FORM XL_EMAIL_WORKBOOK                                        *
+*---------------------------------------------------------------------*
+*       ........                                                      *
+*---------------------------------------------------------------------*
+*  -->  P_APPLICATION                                                 *
+*---------------------------------------------------------------------*
+FORM xl_email_workbook                                      "#EC CALLED
+     USING
+       p_application TYPE ole2_object
+       p_t_options   TYPE t_generation_options.
+
+  STATICS: dialogs TYPE ole2_object.
+
+  DATA: recipients TYPE s_generation_options-argument,
+        subject    TYPE s_generation_options-argument.
+
+  DATA: wa_options LIKE LINE OF p_t_options[].
+
+
+* Busca destinatário
+  CALL METHOD OF p_application 'Dialogs' = dialogs  NO FLUSH
+       EXPORTING
+         #1 = 189. " xlDialogSendMail
+
+  READ TABLE p_t_options[] INTO wa_options
+                           WITH KEY option = xl_email_recipients
+                           TRANSPORTING argument.
+
+  IF sy-subrc = 0.
+
+    recipients = wa_options-argument.
+
+  ENDIF.
+
+
+* Busca assunto
+  READ TABLE p_t_options[] INTO wa_options
+                           WITH KEY option = xl_email_subject
+                           TRANSPORTING argument.
+
+  IF sy-subrc = 0.
+
+    subject = wa_options-argument.
+
+  ENDIF.
+
+
+  CALL METHOD OF dialogs 'Show' NO FLUSH
+       EXPORTING
+         #1 = recipients
+         #2 = subject.
+
+  FREE OBJECT dialogs.
+
+ENDFORM.
+
+* --------------------------------------------------------------------
+* Form add_page_break
+* --------------------------------------------------------------------
+* Objetivo: Inclui uma instrução quebra de página na tabela de dados
+*           para Excel
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_row              Índice da linha de quebra
+* <-- p_t_excel_content  Tabela de dados para Excel
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM add_page_break                                         "#EC CALLED
+     USING
+       p_row             TYPE i
+     CHANGING
+       p_t_excel_content TYPE t_excel_content.
+
+  DATA: wa_excel_content LIKE LINE OF p_t_excel_content[].
+
+  wa_excel_content-row       = p_row.
+  wa_excel_content-operation = xl_op_new_page.
+
+  APPEND wa_excel_content TO p_t_excel_content[].
+
+ENDFORM.                    " add_page_break
+
+* --------------------------------------------------------------------
+* Form fill_items_fields
+* --------------------------------------------------------------------
+* Objetivo: Preenche dados de uma tabela em uma seção
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_items            Tabela de itensb
+*     p_sheet            Nome da planilha
+*     p_current_row      Linha da planilha atual
+*     p_t_matrix         Matriz de campos no report
+*     p_t_report_fields  Campos disponíveis no report
+*     p_t_sect_height    Tabela de altura de linhas do arquivo
+*     p_item_index       Índice do item
+* <-- p_section_height   Nova altura da seção
+*     p_t_excel_content  Dados para Excel
+*     p_subrc            Código de retorno
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM fill_items_fields                                      "#EC CALLED
+     USING
+        p_items            TYPE table
+        p_sheet            TYPE /pws/zycrl008
+        p_current_row      TYPE i
+        p_t_matrix         TYPE t_matrix
+        p_t_report_fields  TYPE t_rep_fields
+        p_t_sect_height    TYPE t_sect_height
+        p_item_index       TYPE i
+     CHANGING
+        p_section_height  TYPE f
+        p_t_excel_content TYPE t_excel_content
+        p_subrc           TYPE sy-subrc.
+
+  FIELD-SYMBOLS: <fs_item> TYPE ANY.
+
+  DATA: wa_matrix        LIKE LINE OF p_t_matrix[],
+        wa_excel_content LIKE LINE OF p_t_excel_content[].
+
+  DATA: row_height        TYPE f,
+        occupied_rows     TYPE i.
+
+  DATA: displacement  TYPE i,
+        subrc         TYPE sy-subrc.
+
+  DATA: it_height_adjust TYPE t_rows_height_adjust,
+        wa_height_adjust LIKE LINE OF it_height_adjust.
+
+  displacement = p_current_row - 1.
+
+  READ TABLE p_items[] ASSIGNING <fs_item> INDEX p_item_index.
+
+  IF sy-subrc = 0.
+
+    PERFORM get_section_height
+            USING
+               p_sheet
+               p_t_sect_height
+            CHANGING
+               p_section_height.
+
+    LOOP AT p_t_matrix[]
+         INTO wa_matrix
+         WHERE sheet = p_sheet
+           AND field CP c_items_pattern.
+
+      wa_excel_content-operation = xl_op_fill_field.
+
+      wa_excel_content-sheet = p_sheet.
+
+      wa_excel_content-row = wa_matrix-row_position + displacement.
+
+      wa_excel_content-column = wa_matrix-column_position.
+
+      CLEAR occupied_rows.
+
+      PERFORM write_field_to_char
+              USING
+                 <fs_item>
+                 wa_matrix-field
+                 p_t_report_fields[]
+              CHANGING
+                 wa_excel_content-value
+                 subrc.
+
+      PERFORM get_occupied_rows
+              USING
+                 wa_excel_content-value
+                 wa_matrix-width
+              CHANGING
+                 occupied_rows.
+
+      IF occupied_rows > 1.
+
+        PERFORM get_row_height
+                USING
+                   wa_matrix-row_position
+                   p_sheet
+                   p_t_sect_height
+                CHANGING
+                   row_height.
+
+        wa_height_adjust-row    = wa_excel_content-row.
+        wa_height_adjust-height = row_height * occupied_rows.
+        wa_height_adjust-adjust = row_height * ( occupied_rows - 1 ).
+
+        APPEND wa_height_adjust TO it_height_adjust.
+
+      ENDIF.
+
+      APPEND wa_excel_content TO p_t_excel_content[].
+
+    ENDLOOP.
+
+*   Aplica ajuste para linhas com altura múltipla
+    SORT it_height_adjust[] BY row ASCENDING height DESCENDING.
+
+    DELETE ADJACENT DUPLICATES FROM it_height_adjust[] COMPARING row.
+
+    LOOP AT it_height_adjust INTO wa_height_adjust.
+
+      ADD wa_height_adjust-adjust TO p_section_height.
+
+      READ TABLE p_t_excel_content TRANSPORTING NO FIELDS
+           WITH KEY row       = wa_height_adjust-row
+                    operation = xl_op_fill_field.
+
+      IF sy-subrc = 0.
+
+        wa_excel_content-height = wa_height_adjust-height.
+
+        MODIFY p_t_excel_content[] FROM wa_excel_content
+               INDEX sy-tabix
+               TRANSPORTING height.
+
+      ENDIF.
+
+
+    ENDLOOP.
+
+    p_subrc = 0.
+
+  ELSE.
+
+    p_subrc = 4.
+
+  ENDIF.
+
+ENDFORM.                    " fill_items_fields
+
+* --------------------------------------------------------------------
+* Form get_row_height
+* --------------------------------------------------------------------
+* Objetivo: Retorna a altura de uma linha
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_row            Índice da linha
+*     p_sheet_name     Nome da planilha
+*     p_t_sect_height  Tabela de alturas das linhas do arquivo
+* <-- p_height         Altura da linha em pontos
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM get_row_height                                         "#EC CALLED
+     USING
+        p_row           TYPE /pws/zycrt014-row_position
+        p_sheet_name    TYPE /pws/zycrl008
+        p_t_sect_height TYPE t_sect_height
+     CHANGING
+        p_height        TYPE f.
+
+  DATA: wa_sect_height LIKE LINE OF p_t_sect_height[].
+
+  READ TABLE p_t_sect_height[] INTO wa_sect_height
+       WITH TABLE KEY sheet     = p_sheet_name
+                      row_index = p_row.
+
+  IF sy-subrc = 0.
+
+    p_height = wa_sect_height-height.
+
+  ELSE.
+
+    CLEAR p_height.
+
+  ENDIF.
+
+ENDFORM.                    " get_row_height
+
+* --------------------------------------------------------------------
+* Form write_field_to_char
+* --------------------------------------------------------------------
+* Objetivo: Move e formata um campo qualquer para um campo tipo C.
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_structure     Estrutura de dados
+*     p_field_name    Nome do campo na estrutura de dados
+*     p_t_rep_fields  Tabela de campos disponíveis
+* <-- p_excel_field   Campo tipo C
+*     v_subrc         Código de retorno
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* 467106      10/06/2008      Correção de Valores Negativos
+* --------------------------------------------------------------------
+FORM write_field_to_char                                    "#EC CALLED
+     USING
+        p_structure    TYPE any
+        p_field_name   TYPE /pws/zycrt014-field
+        p_t_rep_fields TYPE t_rep_fields
+     CHANGING
+        p_excel_field TYPE c
+        v_subrc       TYPE sy-subrc.
+
+  DATA: tab_name       TYPE /pws/zycrt014-field,            "#EC NEEDED
+        field_name     TYPE /pws/zycrt014-field,
+        field_ref_name TYPE /pws/zycrt014-field.
+
+  DATA: wa_rep_fields LIKE LINE OF p_t_rep_fields[].
+
+  DATA: v_type(1) TYPE c.
+
+
+  FIELD-SYMBOLS: <fs_field>     TYPE ANY,
+                 <fs_field_ref> TYPE ANY.
+
+* Separa o nome do campo do nome da estrutura
+  SPLIT p_field_name AT '-' INTO tab_name field_name.
+
+* Recupera o valor do campo
+  ASSIGN COMPONENT field_name OF STRUCTURE p_structure
+                              TO <fs_field>.
+
+  v_subrc = sy-subrc.
+
+  CHECK v_subrc = 0.
+
+* Procura pelo campo de moeda ou unidade.
+  READ TABLE p_t_rep_fields INTO wa_rep_fields
+       WITH TABLE KEY field = p_field_name
+       TRANSPORTING curr_field
+                    unit_field
+                    edit_mask.
+
+  IF sy-subrc = 0.
+
+    IF NOT wa_rep_fields-curr_field IS INITIAL.
+
+*     Separa o nome do campo do nome da estrutura
+      SPLIT wa_rep_fields-curr_field AT '-' INTO tab_name
+                                                 field_ref_name.
+
+*     Recupera o valor do campo de moeda
+      ASSIGN COMPONENT field_ref_name OF STRUCTURE p_structure
+                                      TO <fs_field_ref>.
+
+      IF wa_rep_fields-edit_mask IS INITIAL.
+
+        WRITE <fs_field> TO p_excel_field CURRENCY <fs_field_ref>
+                                          LEFT-JUSTIFIED.
+
+      ELSE.
+
+        WRITE <fs_field> TO p_excel_field CURRENCY <fs_field_ref>
+                                          LEFT-JUSTIFIED
+                         USING EDIT MASK wa_rep_fields-edit_mask.
+
+      ENDIF.
+
+    ELSEIF NOT wa_rep_fields-unit_field IS INITIAL.
+
+*     Separa o nome do campo do nome da estrutura
+      SPLIT wa_rep_fields-unit_field AT '-' INTO tab_name
+                                                 field_ref_name.
+
+*     Recupera o valor do campo de unidade
+      ASSIGN COMPONENT field_ref_name OF STRUCTURE p_structure
+                                      TO <fs_field_ref>.
+
+      IF wa_rep_fields-edit_mask IS INITIAL.
+
+        WRITE <fs_field> TO p_excel_field UNIT <fs_field_ref>
+                                          LEFT-JUSTIFIED.
+
+      ELSE.
+
+        WRITE <fs_field> TO p_excel_field UNIT <fs_field_ref>
+                                          LEFT-JUSTIFIED
+                         USING EDIT MASK wa_rep_fields-edit_mask.
+
+      ENDIF.
+
+    ELSE.
+
+*     Aplica a máscara de edição, se necessário
+      IF wa_rep_fields-edit_mask IS INITIAL.
+
+        WRITE <fs_field> TO p_excel_field LEFT-JUSTIFIED.
+
+      ELSE.
+
+        WRITE <fs_field> TO p_excel_field LEFT-JUSTIFIED
+                         USING EDIT MASK wa_rep_fields-edit_mask.
+
+      ENDIF.
+
+    ENDIF.
+
+  ENDIF.
+
+  DESCRIBE FIELD <fs_field> TYPE v_type.
+
+  IF v_type CA 'IPF'
+     AND <fs_field> < 0
+     AND p_excel_field CP '*-'.                           "#EC PORTABLE
+
+    SHIFT p_excel_field RIGHT DELETING TRAILING ' -'.
+    SHIFT p_excel_field LEFT DELETING LEADING space.
+    CONCATENATE '-' p_excel_field INTO p_excel_field.
+
+  ENDIF.
+
+ENDFORM.                    " write_field_to_char
+
+* --------------------------------------------------------------------
+* Form pack_single_argument
+* --------------------------------------------------------------------
+* Objetivo: Inclui uma opção na lista de opções de geração
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_option    Opção de geração
+*     p_argument  Argumento da opção
+* <-- p_list      Lista de opções de geração
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado  Data       Descrição
+* --------------------------------------------------------------------
+* 391073   12/09/07   Codificação inicial
+* --------------------------------------------------------------------
+FORM pack_single_argument
+     USING
+         p_option   TYPE s_generation_options-option
+         p_argument TYPE any
+     CHANGING
+         p_list     TYPE t_generation_options.
+
+  DATA: wa_list LIKE LINE OF p_list.
+
+  READ TABLE p_list[] INTO wa_list WITH KEY option = p_option
+       TRANSPORTING argument.
+
+  IF sy-subrc = 0.
+
+    wa_list-argument = p_argument.
+
+    MODIFY p_list[] FROM wa_list INDEX sy-tabix TRANSPORTING argument.
+
+    sy-subrc = 8.
+
+  ELSE.
+
+    wa_list-option   = p_option.
+    wa_list-argument = p_argument.
+
+    APPEND wa_list TO p_list[].
+
+    sy-subrc = 0.
+
+  ENDIF.
+
+ENDFORM.                    " pack_single_argument
+
+* --------------------------------------------------------------------
+* Form unpack_single_argument
+* --------------------------------------------------------------------
+* Objetivo: Retorna o argumento de uma opção de geração
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_list      Lista de opções de geração
+*     p_option    Opção de geração procurada
+* <-- p_argument  Argumento
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado  Data       Descrição
+* --------------------------------------------------------------------
+* 391073   12/09/07   Codificação inicial
+* --------------------------------------------------------------------
+FORM unpack_single_argument
+     USING
+         p_list     TYPE t_generation_options
+         p_option   TYPE s_generation_options-option
+     CHANGING
+         p_argument TYPE any.
+
+  DATA: wa_list LIKE LINE OF p_list.
+
+  READ TABLE p_list[] INTO wa_list WITH KEY option = p_option
+       TRANSPORTING argument.
+
+  IF sy-subrc = 0.
+
+    p_argument = wa_list-argument.
+
+    sy-subrc = 0.
+
+  ELSE.
+
+    CLEAR p_argument.
+
+    sy-subrc = 4.
+
+  ENDIF.
+
+ENDFORM.                    " unpack_single_argument
+
+* --------------------------------------------------------------------
+* Form unpack_table_argument
+* --------------------------------------------------------------------
+* Objetivo: Retorna o argumento de uma opção de geração
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_list        Lista de opções de geração
+*     p_option      Opção de geração procurada
+* <-- p_t_argument  Lista de argumentos
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado  Data       Descrição
+* --------------------------------------------------------------------
+* 391073   12/09/07   Codificação inicial
+* --------------------------------------------------------------------
+FORM unpack_table_argument
+     USING
+         p_list     TYPE t_generation_options
+         p_option   TYPE s_generation_options-option
+     CHANGING
+         p_t_argument TYPE table.
+
+  DATA: wa_list LIKE LINE OF p_list.
+
+
+  CLEAR: p_t_argument[].
+
+  LOOP AT p_list[] INTO wa_list WHERE option = p_option.
+
+    APPEND wa_list-argument TO p_t_argument[].
+
+  ENDLOOP.
+
+ENDFORM.                    " unpack_table_argument
+
+* --------------------------------------------------------------------
+* Form check_argument_exists
+* --------------------------------------------------------------------
+* Objetivo: Verifica se uma opção de geração foi usada (sy-subrc = 0)
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_list    Lista de opções de geração
+*     p_option  Opção de geração procurada
+* <-- <nenhum>
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado  Data       Descrição
+* --------------------------------------------------------------------
+* 391073   12/09/07   Codificação inicial
+* --------------------------------------------------------------------
+FORM check_argument_exists
+     USING
+         p_list   TYPE t_generation_options
+         p_option TYPE s_generation_options-option.
+
+  READ TABLE p_list[] WITH KEY option = p_option TRANSPORTING NO FIELDS.
+
+ENDFORM.                    " check_argument_exists

@@ -1,0 +1,440 @@
+* --------------------------------------------------------------------
+* PROCWORK Software
+* Produto:   pw.CE
+* Módulo:    CR - pw.CE Reports
+* Descrição: Rotinas comuns para processamento do repositório de
+*            arquivos
+* Help Desk: (11) 5504-0270
+* --------------------------------------------------------------------
+* ESTE PROGRAMA NÃO DEVE SER ALTERADO SEM PRÉVIA CONSULTA
+* --------------------------------------------------------------------
+* Chamado      Data         Descrição
+* --------------------------------------------------------------------
+* 316455       14/11/2006   Codificação inicial
+* --------------------------------------------------------------------
+
+TYPE-POOLS: abap.
+
+*---------------------------------------------------------------------*
+*       CLASS lcl_reports_repository DEFINITION
+*---------------------------------------------------------------------*
+*       ........                                                      *
+*---------------------------------------------------------------------*
+CLASS lcl_reports_repository DEFINITION.
+
+  PUBLIC SECTION.
+
+    TYPES: t_file TYPE STANDARD TABLE OF /pws/zycrt009-clustd
+                                WITH DEFAULT KEY.
+
+    TYPES: BEGIN OF repository_key,
+             spras TYPE /pws/zycrt009-spras,
+             file_id TYPE /pws/zycrt009-file_id,
+           END OF repository_key.
+
+    CLASS-METHODS:
+
+        upload_report
+            IMPORTING
+              spras      TYPE /pws/zycrt009-spras
+              file_id    TYPE /pws/zycrt009-file_id
+              commentary TYPE /pws/zycrt009-commentary
+              filename   TYPE string
+            EXCEPTIONS
+              file_not_found
+              error,
+
+        download_report
+            IMPORTING
+              spras      TYPE /pws/zycrt009-spras
+              file_id    TYPE /pws/zycrt009-file_id
+              filename   TYPE string
+            EXCEPTIONS
+              report_not_found
+              error,
+
+        delete_report
+            IMPORTING
+                spras   TYPE /pws/zycrt009-spras
+                file_id TYPE /pws/zycrt009-file_id
+            EXCEPTIONS
+                error,
+
+        report_exists
+            IMPORTING
+              spras   TYPE /pws/zycrt009-spras
+              file_id TYPE /pws/zycrt009-file_id
+            EXPORTING
+              exists    TYPE abap_bool
+            EXCEPTIONS
+              error.
+
+ENDCLASS.                    " lcl_reports_repository
+
+*---------------------------------------------------------------------*
+*       CLASS LCL_REPORTS_REPOSITORY IMPLEMENTATION
+*---------------------------------------------------------------------*
+*       ........                                                      *
+*---------------------------------------------------------------------*
+CLASS lcl_reports_repository IMPLEMENTATION.
+
+*---------------------------------------------------------------------*
+*       PUBLIC CLASS-METHOD upload_report
+*---------------------------------------------------------------------*
+  METHOD upload_report.
+
+    DATA: wa_repository TYPE /pws/zycrt009,
+          repository_key TYPE repository_key,
+          it_file_data TYPE t_file,
+          file_size TYPE i.
+
+    CALL METHOD cl_gui_frontend_services=>gui_upload
+         EXPORTING
+            filename                = filename
+            filetype                = 'BIN'
+*            HAS_FIELD_SEPARATOR     = SPACE
+*            HEADER_LENGTH           = 0
+         IMPORTING
+            filelength              = file_size
+*            HEADER                  =
+         CHANGING
+            data_tab                = it_file_data[]
+         EXCEPTIONS
+            file_open_error         = 1
+            file_read_error         = 2
+            no_batch                = 3
+            gui_refuse_filetransfer = 4
+            invalid_type            = 5
+            no_authority            = 6
+            unknown_error           = 7
+            bad_data_format         = 8
+            header_not_allowed      = 9
+            separator_not_allowed   = 10
+            header_too_long         = 11
+            unknown_dp_error        = 12
+            access_denied           = 13
+            dp_out_of_memory        = 14
+            disk_full               = 15
+            dp_timeout              = 16
+            OTHERS                  = 17.
+
+    IF sy-subrc = 1.
+
+      RAISE file_not_found.
+
+    ELSEIF sy-subrc > 1.
+
+      RAISE error.
+
+    ENDIF.
+
+    repository_key-file_id = file_id.
+    repository_key-spras   = spras.
+
+    wa_repository-commentary = commentary.
+    wa_repository-filesize   = file_size.
+
+    EXPORT file FROM it_file_data
+                 TO DATABASE /pws/zycrt009(fl)
+                 FROM wa_repository
+                 ID repository_key.
+
+  ENDMETHOD.
+
+*---------------------------------------------------------------------*
+*       PUBLIC CLASS-METHOD download_report
+*---------------------------------------------------------------------*
+  METHOD download_report.
+
+    DATA: wa_repository TYPE /pws/zycrt009,
+          repository_key TYPE repository_key,
+          it_file_data TYPE t_file.
+
+    repository_key-file_id = file_id.
+    repository_key-spras = spras.
+
+    IMPORT file TO it_file_data[]
+          FROM DATABASE /pws/zycrt009(fl)
+          TO wa_repository
+          ID repository_key.
+
+    IF sy-subrc <> 0.
+
+      RAISE report_not_found.
+
+    ENDIF.
+
+    CALL METHOD cl_gui_frontend_services=>gui_download
+         EXPORTING
+            bin_filesize            = wa_repository-filesize
+            filename                = filename
+            filetype                = 'BIN'
+*            append                  = space
+*            WRITE_FIELD_SEPARATOR   = SPACE
+*            HEADER                  = '00'
+*            TRUNC_TRAILING_BLANKS   = SPACE
+*            WRITE_LF                = 'X'
+*            COL_SELECT              = SPACE
+*            COL_SELECT_MASK         = SPACE
+*         IMPORTING
+*            FILELENGTH              =
+         CHANGING
+            data_tab                = it_file_data[]
+         EXCEPTIONS
+            file_write_error        = 1
+            no_batch                = 2
+            gui_refuse_filetransfer = 3
+            invalid_type            = 4
+            no_authority            = 5
+            unknown_error           = 6
+            header_not_allowed      = 7
+            separator_not_allowed   = 8
+            filesize_not_allowed    = 9
+            header_too_long         = 10
+            dp_error_create         = 11
+            dp_error_send           = 12
+            dp_error_write          = 13
+            unknown_dp_error        = 14
+            access_denied           = 15
+            dp_out_of_memory        = 16
+            disk_full               = 17
+            dp_timeout              = 18
+            file_not_found          = 19
+            dataprovider_exception  = 20
+            control_flush_error     = 21
+            OTHERS                  = 22.
+
+    CASE sy-subrc.
+
+      WHEN 0.
+
+      WHEN 15.
+
+        sy-msgid = '/PWS/ZYCRM'.
+        sy-msgty = 'E'.
+        sy-msgno = '002'.
+        sy-msgv1 = filename.
+
+        CLEAR: sy-msgv2, sy-msgv3, sy-msgv4.
+
+        RAISE error.
+
+      WHEN 19.
+
+        sy-msgid = '/PWS/ZYCRM'.
+        sy-msgty = 'E'.
+        sy-msgno = '024'.
+        sy-msgv1 = filename.
+
+        CLEAR: sy-msgv2, sy-msgv3, sy-msgv4.
+
+        RAISE error.
+
+      WHEN OTHERS.
+
+        sy-msgid = '/PWS/ZYCRM'.
+        sy-msgty = 'E'.
+        sy-msgno = '025'.
+        sy-msgv1 = filename.
+
+        CLEAR: sy-msgv2, sy-msgv3, sy-msgv4.
+
+        RAISE error.
+
+    ENDCASE.
+
+  ENDMETHOD.
+
+*---------------------------------------------------------------------*
+*       PUBLIC CLASS-METHOD delete_report
+*---------------------------------------------------------------------*
+  METHOD delete_report.
+
+    DATA: repository_key TYPE repository_key.
+
+    repository_key-file_id = file_id.
+    repository_key-spras = spras.
+
+    DELETE FROM DATABASE /pws/zycrt009(fl) ID repository_key.
+
+    IF sy-subrc <> 0.
+
+      RAISE error.
+
+    ENDIF.
+
+  ENDMETHOD.
+
+*---------------------------------------------------------------------*
+*       PUBLIC CLASS-METHOD generate_file_name
+*---------------------------------------------------------------------*
+  METHOD report_exists.
+
+    SELECT COUNT(*)
+        FROM /pws/zycrt009
+        WHERE relid = 'FL'
+          AND spras = spras
+          AND file_id = file_id.
+
+    IF sy-subrc <> 0.
+
+      exists = abap_false.
+
+    ELSE.
+
+      exists = abap_true.
+
+    ENDIF.
+
+  ENDMETHOD.
+
+ENDCLASS.                    " lcl_reports_repository
+
+* --------------------------------------------------------------------
+* Form generate_file_name
+* --------------------------------------------------------------------
+* Objetivo: Gerar o caminho completo para o arquivo
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_file_name     Nome pretendido para o arquivo
+*     p_gen_param     Parâmetros gerais de report
+*     p_rep_param     Parâmetros específicos por report
+* <-- p_nome_arquivo  Caminho completo do arquivo
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      13/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM generate_file_name                                     "#EC CALLED
+     USING
+         p_file_name TYPE c
+         p_gen_param TYPE /pws/zycrt012
+         p_rep_param TYPE /pws/zycrt013
+     CHANGING
+         p_nome_arquivo TYPE c.
+
+  DATA: id_report LIKE p_rep_param-report_id.
+
+  STATICS: str_folder TYPE string.
+
+  CASE p_gen_param-system_folder.
+
+    WHEN 0.
+
+      IF NOT p_rep_param-report_folder IS INITIAL.
+
+        p_nome_arquivo = p_rep_param-report_folder.
+
+      ELSE.
+
+        IF NOT p_gen_param-report_folder IS INITIAL.
+
+          p_nome_arquivo = p_gen_param-report_folder.
+
+        ELSE.
+
+          p_nome_arquivo = '\'.
+
+        ENDIF.
+
+      ENDIF.
+
+    WHEN 1. " Desktop
+
+      CALL METHOD cl_gui_frontend_services=>get_desktop_directory
+           CHANGING
+             desktop_directory    = str_folder
+           EXCEPTIONS
+             cntl_error           = 0
+             error_no_gui         = 0
+             not_supported_by_gui = 0
+             OTHERS               = 0.
+
+      CALL METHOD cl_gui_cfw=>flush
+        EXCEPTIONS
+          cntl_system_error = 1
+          cntl_error        = 2
+          OTHERS            = 3.
+
+      IF sy-subrc = 0.
+
+        p_nome_arquivo = str_folder.
+
+      ENDIF.
+
+  ENDCASE.
+
+  SHIFT p_nome_arquivo RIGHT DELETING TRAILING ' \'.
+  SHIFT p_nome_arquivo LEFT  DELETING LEADING  ' '.
+
+  MOVE p_rep_param-report_id TO id_report.
+
+  TRANSLATE id_report USING '._\_/_:_*_?_<_>_|_"_'.
+  CONDENSE  id_report NO-GAPS.
+
+  CONCATENATE p_nome_arquivo
+              '\'
+              p_file_name
+              '_'
+              id_report
+              '.xls'
+         INTO p_nome_arquivo.
+
+
+ENDFORM.                    " generate_file_name
+
+* --------------------------------------------------------------------
+* Form download_file
+* --------------------------------------------------------------------
+* Objetivo: Descarregar um arquivo do repositório para o front-end.
+*           Cria todas as pastas necessárias e sobrescreve o arquivo.
+*           Gera mensagem de erro, quando apropriado.
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_rep_param  Parâmetros específicos por report
+*     p_file_name  Caminho completo para gravação do arquivo.
+* <-- <nenhum>
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      13/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM download_file                                          "#EC CALLED
+     USING
+         p_rep_param TYPE /pws/zycrt013
+         p_file_name TYPE c.
+
+  DATA: str_filename TYPE string.
+
+  str_filename = p_file_name.
+
+  CALL METHOD lcl_reports_repository=>download_report
+       EXPORTING
+          spras    = p_rep_param-spras
+          file_id  = p_rep_param-file_id
+          filename = str_filename
+       EXCEPTIONS
+          report_not_found = 1
+          error            = 2.
+
+  CASE sy-subrc.
+
+    WHEN 1.
+
+      MESSAGE e005 WITH p_rep_param-spras
+                        p_rep_param-file_id.
+
+    WHEN 2.
+
+      MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+              WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+
+    WHEN OTHERS.
+
+  ENDCASE.
+
+ENDFORM.                    " download_file

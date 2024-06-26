@@ -1,0 +1,1693 @@
+* --------------------------------------------------------------------
+* PROCWORK Software
+* Produto  : pw.CE
+* Módulo   : CR - pw.CE Reports
+* Descrição: Rotinas comuns na geração de reports
+* Help Desk: (11) 5504-0270
+* --------------------------------------------------------------------
+* ESTE PROGRAMA NÃO DEVE SER ALTERADO SEM PRÉVIA CONSULTA
+* --------------------------------------------------------------------
+* Chamado      Data         Descrição
+* --------------------------------------------------------------------
+* 316455       14/11/2006   Codificação inicial
+* 377585       30/04/2007   Report excel automatização do Idioma
+* 385209       31/05/2007   Tratamento para read texts no Reports Excel
+* A request é: F6DK946929
+* --------------------------------------------------------------------
+
+* Variáveis para mensagem de erro
+DATA: msg_module TYPE /pws/zycrt013-report_module,          "#EC NEEDED
+      msg_report TYPE /pws/zycrt013-report_id,              "#EC NEEDED
+      msg_langu  TYPE /pws/zycrt013-spras,                  "#EC NEEDED
+      msg_bukrs  TYPE /pws/zycrt013-bukrs,                  "#EC NEEDED
+      msg_werks  TYPE /pws/zycrt013-werks,                  "#EC NEEDED
+      msg_branch TYPE /pws/zycrt013-j_1bbranch,             "#EC NEEDED
+      msg_inco1  TYPE /pws/zycrt013-inco1,                  "#EC NEEDED
+      msg_zterm  TYPE /pws/zycrt013-zterm.                  "#EC NEEDED
+
+DATA: v_file_name(255) TYPE c.
+
+* Chamado - 377585 - Início
+DATA: v_langu  LIKE sy-langu.
+* Chamado - 377585 - Fim
+
+TYPES: BEGIN OF s_sort_criteria,
+         field_01 TYPE dd03l-fieldname,
+         field_02 TYPE dd03l-fieldname,
+         field_03 TYPE dd03l-fieldname,
+         field_04 TYPE dd03l-fieldname,
+         field_05 TYPE dd03l-fieldname,
+         field_06 TYPE dd03l-fieldname,
+         field_07 TYPE dd03l-fieldname,
+         field_08 TYPE dd03l-fieldname,
+         field_09 TYPE dd03l-fieldname,
+         field_10 TYPE dd03l-fieldname,
+         field_11 TYPE dd03l-fieldname,
+         field_12 TYPE dd03l-fieldname,
+       END OF s_sort_criteria.
+
+TYPES: BEGIN OF s_t005,
+         spras TYPE t005t-spras,
+         land1 TYPE t005-land1,
+         landx TYPE t005t-landx,
+       END OF s_t005,
+       t_t005 TYPE HASHED TABLE OF s_t005
+              WITH UNIQUE KEY spras
+                              land1.
+
+TYPES: r_grupos TYPE RANGE OF /pws/zycet002-grupo.
+
+*---------------------------------------------------------------------*
+*       FORM CONVERT_UNITS                                            *
+*---------------------------------------------------------------------*
+*       ........                                                      *
+*---------------------------------------------------------------------*
+*  -->  P_FROM_VALUE                                                  *
+*  -->  P_FROM_UNIT                                                   *
+*  -->  P_TO_UNIT                                                     *
+*  -->  P_TO_VALUE                                                    *
+*  -->  P_SUBRC                                                       *
+*---------------------------------------------------------------------*
+FORM convert_units
+     USING
+        p_from_value TYPE p
+        p_from_unit  TYPE t006-msehi
+        p_to_unit    TYPE t006-msehi
+     CHANGING
+        p_to_value   TYPE p
+        p_subrc      TYPE sy-subrc.
+
+  CALL FUNCTION 'UNIT_CONVERSION_SIMPLE'
+       EXPORTING
+            input                = p_from_value
+*            NO_TYPE_CHECK        = 'X'
+*            ROUND_SIGN           = ' '
+            unit_in              = p_from_unit
+            unit_out             = p_to_unit
+       IMPORTING
+*            ADD_CONST            =
+*            DECIMALS             =
+*            DENOMINATOR          =
+*            NUMERATOR            =
+            output               = p_to_value
+       EXCEPTIONS
+            conversion_not_found = 1
+            division_by_zero     = 2
+            input_invalid        = 3
+            output_invalid       = 4
+            overflow             = 5
+            type_invalid         = 6
+            units_missing        = 7
+            unit_in_not_found    = 8
+            unit_out_not_found   = 9
+            OTHERS               = 10.
+
+  p_subrc = sy-subrc.
+
+ENDFORM.
+
+* --------------------------------------------------------------------
+* Form convert_material_units
+* --------------------------------------------------------------------
+* Objetivo: Conversão de unidades, considerando o material
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_material           Material
+*     p_quantity           Quantidade
+*     p_from_unit          Unidade de origem
+*     p_to_unit            Unidade de destino
+* <-- p_converted_quantity Quantidade convertida
+*     p_subrc              Código de retorno
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM convert_material_units
+     USING
+        p_material        TYPE matnr
+        value(p_quantity) TYPE p
+        p_from_unit       TYPE t006-msehi
+        p_to_unit         TYPE t006-msehi
+     CHANGING
+        p_converted_quantity TYPE p
+        p_subrc              TYPE sy-subrc.
+
+  CLEAR: p_converted_quantity,
+         p_subrc.
+
+  DATA: v_tmp_output TYPE f.
+
+  CALL FUNCTION 'MATERIAL_UNIT_CONVERSION'
+       EXPORTING
+            matnr                = p_material
+            input                = p_quantity
+            meinh                = p_from_unit
+            kzmeinh              = 'X'
+       IMPORTING
+            output               = v_tmp_output
+       EXCEPTIONS
+            conversion_not_found = 01
+            input_invalid        = 02
+            material_not_found   = 03
+            meinh_not_found      = 04
+            meins_missing        = 05
+            no_meinh             = 06
+            output_invalid       = 07
+            overflow             = 08.
+
+  ADD sy-subrc TO p_subrc.
+
+  CALL FUNCTION 'MATERIAL_UNIT_CONVERSION'
+       EXPORTING
+            matnr                = p_material
+            input                = v_tmp_output
+            meinh                = p_to_unit
+            kzmeinh              = space
+       IMPORTING
+            output               = p_converted_quantity
+       EXCEPTIONS
+            conversion_not_found = 01
+            input_invalid        = 02
+            material_not_found   = 03
+            meinh_not_found      = 04
+            meins_missing        = 05
+            no_meinh             = 06
+            output_invalid       = 07
+            overflow             = 08.
+
+  ADD sy-subrc TO p_subrc.
+
+ENDFORM.                    " convert_material_units
+
+* --------------------------------------------------------------------
+* Form convert_currency
+* --------------------------------------------------------------------
+* Objetivo: Conversão de moeda
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_amount             Montante
+*     p_from_currency      Moeda de origem
+*     p_to_currency        Moeda de destino
+*     p_exchange_category  Categoria de conversão
+*     p_date               Data de conversão
+* <-- p_converted_amount   Montante convertido
+*     p_subrc              Código de retorno
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM convert_currency
+     USING
+        value(p_amount)     TYPE wrbtr
+        p_from_currency     TYPE currency
+        p_to_currency       TYPE currency
+        p_exchange_category TYPE kurst_curr
+        p_date              TYPE d
+     CHANGING
+        p_converted_amount TYPE wrbtr
+        p_subrc            TYPE sy-subrc.
+
+  CLEAR p_converted_amount.
+
+  CALL FUNCTION '/PWS/ZYGL_MONTANTE_CONVERTE'
+       EXPORTING
+            i_montante                   = p_amount
+            i_demoeda                    = p_from_currency
+            i_paramoeda                  = p_to_currency
+            i_ctmoeda                    = p_exchange_category
+            i_dtbase                     = p_date
+       IMPORTING
+            e_montante                   = p_converted_amount
+       EXCEPTIONS
+            i_demoeda_nao_encontrado     = 1
+            i_paramoeda_nao_encontrado   = 2
+            i_ctmoeda_nao_encontrado     = 3
+            i_dtbase_nao_encontrada      = 4
+            taxa_nao_encontrada          = 5
+            fator_nao_encontrado         = 6
+            i_montante_nao_encontrado    = 7
+            tabela_categ_nao_configurada = 8
+            OTHERS                       = 9.
+
+  p_subrc = sy-subrc.
+
+ENDFORM.                    " convert_currency
+
+* --------------------------------------------------------------------
+* Form spell_currency_amount
+* --------------------------------------------------------------------
+* Objetivo: Escreve um montante por extenso
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> amount    Montante
+*     currency  Moeda
+* <-- in_words  Montante por extenso
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* 390638      03/07/2007      Escreve um montante por extenso
+* --------------------------------------------------------------------
+FORM spell_currency_amount
+     USING
+         amount   TYPE p
+         currency TYPE currency
+         v_langu  TYPE /pws/zycrt009-spras
+     CHANGING
+         in_words TYPE c.                                   "#EC CALLED
+
+  CALL FUNCTION '/PWS/ZYCR_TRANSLATOR_AMOUNT'
+       EXPORTING
+            amount      = amount
+            currency    = currency
+            language    = v_langu
+       IMPORTING
+            in_words    = in_words
+       EXCEPTIONS
+            write_error = 1
+            OTHERS      = 2.
+
+  IF sy-subrc <> 0.
+
+    MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+            WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+
+  ENDIF.
+
+ENDFORM.                    " spell_currency_amount
+
+* --------------------------------------------------------------------
+* Form get_country_name
+* --------------------------------------------------------------------
+* Objetivo: Retorna o nome de um país
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_spras         Código do idioma
+*     p_country_code  Código do país
+* <-- p_country_name  Nome do país
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM get_country_name
+     USING
+        p_spras        TYPE t005t-spras
+        p_country_code TYPE t005t-land1
+     CHANGING
+        p_country_name TYPE t005t-landx.
+
+  STATICS: it_t005 TYPE t_t005,
+           wa_t005 LIKE LINE OF it_t005[].
+
+  IF wa_t005-spras = p_spras
+      AND wa_t005-land1 = p_country_code.
+
+    p_country_name = wa_t005-landx.
+
+  ELSE.
+
+    READ TABLE it_t005[] INTO wa_t005
+         WITH TABLE KEY spras = p_spras
+                        land1 = p_country_code.
+
+    IF sy-subrc = 0.
+
+      p_country_name = wa_t005-landx.
+
+    ELSE.
+
+      SELECT SINGLE spras
+                    land1
+                    landx
+         INTO wa_t005
+         FROM t005t
+         WHERE spras = p_spras
+           AND land1 = p_country_code.
+
+      IF sy-subrc <> 0.
+
+        wa_t005-spras = p_spras.
+        wa_t005-land1 = p_country_code.
+
+        CLEAR wa_t005-landx.
+
+      ENDIF.
+
+      p_country_name = wa_t005-landx.
+
+      INSERT wa_t005 INTO TABLE it_t005[].
+
+    ENDIF.
+
+  ENDIF.
+
+ENDFORM.                    " get_country_name
+
+* --------------------------------------------------------------------
+* Form select_parameters
+* --------------------------------------------------------------------
+* Objetivo: Seleciona os parâmetros para geração de um report:
+*           (a) Parâmetros gerais de reports
+*           (b) Parâmetros específicos por report
+*           (c) Matriz de campos do report
+*           (d) Campos disponíveis no programa
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_report_module Módulo do report
+*     p_report_id     Identificação do report
+*     p_spras         Idioma
+*     p_bukrs         Empresa
+*     p_werks         Centro
+*     p_j_1bbranch    Local de Negócio
+*     p_inco1         Incoterm
+*     p_zterm         Código da condição de pagamento
+*     p_lifnr_exp     Código do exportador
+*     p_land1_exp     País do exportador
+*     p_kunnr_imp     Código do importador
+*     p_land1_imp     País do importador
+*     p_kunnr_cli     Código do recebedor da mercadoria
+*     p_land1_cli     País do recebedor da mercadoria
+* <-- p_gen_param     Parâmetros gerais de reports
+*     p_rep_param     Parâmetros específicos por report
+*     p_t_matrix      Matriz de campos do programa
+*     p_t_rep_fields  Campos diaponíveis no programa
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM select_parameters
+     USING
+        p_report_module TYPE /pws/zycrt010-report_module
+        p_report_id     TYPE /pws/zycrt010-report_id
+        p_spras         TYPE /pws/zycrt013-spras
+        p_bukrs         TYPE /pws/zycrt013-bukrs
+        p_werks         TYPE /pws/zycrt013-werks
+        p_j_1bbranch    TYPE /pws/zycrt013-j_1bbranch
+        p_inco1         TYPE /pws/zycrt013-inco1
+        p_zterm         TYPE /pws/zycrt013-zterm
+        p_lifnr_exp     TYPE /pws/zycrt013-lifnr_exp
+        p_land1_exp     TYPE /pws/zycrt013-land1_exp
+        p_kunnr_imp     TYPE /pws/zycrt013-kunnr_imp
+        p_land1_imp     TYPE /pws/zycrt013-land1_imp
+        p_kunnr_cli     TYPE /pws/zycrt013-kunnr_cli
+        p_land1_cli     TYPE /pws/zycrt013-land1_cli
+     CHANGING
+        p_gen_param    TYPE /pws/zycrt012
+        p_rep_param    TYPE /pws/zycrt013
+        p_t_matrix     TYPE t_matrix
+        p_t_rep_fields TYPE t_rep_fields.
+
+  DATA: it_rep_param LIKE STANDARD TABLE OF p_rep_param,
+        abap_program TYPE /pws/zycrt010-abap_program,
+        key_priority TYPE /pws/zycrt010-key_priority.
+
+  DATA: sort_criteria TYPE s_sort_criteria.
+
+  SELECT SINGLE *
+      INTO p_gen_param
+      FROM /pws/zycrt012.
+
+  CHECK sy-subrc = 0.
+
+  SELECT SINGLE abap_program key_priority
+      FROM /pws/zycrt010
+      INTO (abap_program, key_priority)
+      WHERE report_module = p_report_module
+        AND report_id     = p_report_id.
+
+  CHECK sy-subrc = 0.
+
+  SELECT *
+      INTO TABLE it_rep_param[]
+      FROM /pws/zycrt013
+      WHERE report_module = p_report_module
+        AND report_id     = p_report_id
+        AND spras        IN (p_spras,      space)
+        AND bukrs        IN (p_bukrs,      space)
+        AND werks        IN (p_werks,      space)
+        AND j_1bbranch   IN (p_j_1bbranch, space)
+        AND inco1        IN (p_inco1,      space)
+        AND zterm        IN (p_zterm,      space)
+        AND lifnr_exp    IN (p_lifnr_exp,  space)
+        AND land1_exp    IN (p_land1_exp,  space)
+        AND kunnr_imp    IN (p_kunnr_imp,  space)
+        AND land1_imp    IN (p_land1_imp,  space)
+        AND kunnr_cli    IN (p_kunnr_cli,  space)
+        AND land1_cli    IN (p_land1_cli,  space)
+.
+
+  CHECK sy-subrc = 0.
+
+
+  PERFORM build_rep_param_sort_criteria
+          USING
+             key_priority
+          CHANGING
+             sort_criteria.
+
+  SORT it_rep_param[] DESCENDING BY (sort_criteria-field_01)
+                                    (sort_criteria-field_02)
+                                    (sort_criteria-field_03)
+                                    (sort_criteria-field_04)
+                                    (sort_criteria-field_05)
+                                    (sort_criteria-field_06)
+                                    (sort_criteria-field_07)
+                                    (sort_criteria-field_08)
+                                    (sort_criteria-field_09)
+                                    (sort_criteria-field_10)
+                                    (sort_criteria-field_11)
+                                    (sort_criteria-field_12).
+
+  READ TABLE it_rep_param[] INTO p_rep_param INDEX 1.
+
+  SELECT *
+      INTO TABLE p_t_matrix[]
+      FROM /pws/zycrt014
+      WHERE report_module = p_rep_param-report_module
+        AND report_id = p_rep_param-report_id
+        AND matrix = p_rep_param-matrix.
+
+  SELECT field
+         curr_field
+         unit_field
+         edit_mask
+      INTO TABLE p_t_rep_fields[]
+      FROM /pws/zycrt015
+      WHERE abap_program = abap_program.
+
+ENDFORM.                    " select_parameters
+
+
+* --------------------------------------------------------------------
+* Form create_report
+* --------------------------------------------------------------------
+* Objetivo: Cria o report utilizando o gerador apropriado
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_report_generator  Tipo de gerador de report
+*     p_file_name         Nome do arquivo
+*     p_report_sheet_name Nome da planliha de report
+*     p_sheet_password    Senha da planilha de report
+*     p_t_excel_content   Dados para o Excel
+*     p_t_sect_height     Tabela de altura das linhas do arquivo
+* <-- <nenhum>
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM create_report
+     USING
+        p_report_generator  TYPE /pws/zycrt012-report_generator
+        p_file_name         TYPE c
+        p_report_sheet_name TYPE /pws/zycrl008
+        p_sheet_password    TYPE c
+        p_t_excel_content   TYPE t_excel_content
+        p_t_sect_height     TYPE t_sect_height
+        p_t_options         TYPE t_generation_options. "# EC NEEDED
+
+  CASE p_report_generator.
+*    WHEN '0'. " Microsoft Excel
+    WHEN others.
+  PERFORM build_excel_report
+          USING
+             p_file_name
+             p_report_sheet_name
+             p_sheet_password
+             p_t_excel_content[]
+             p_t_sect_height[]
+             p_t_options[].
+
+  ENDCASE.
+
+ENDFORM.                    " create_report
+
+* --------------------------------------------------------------------
+* Form build_rep_param_sort_criteria
+* --------------------------------------------------------------------
+* Objetivo: Monta a estrutura para ordenação de campos da prioridade
+*           de chave dos parâmetros específicos por report.
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_key_priority   String de prioridade de chaves
+* <-- p_sort_criteria  Estrutura com os campos para ordenação
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM build_rep_param_sort_criteria
+     USING
+        p_key_priority TYPE /pws/zycrt010-key_priority
+     CHANGING
+        p_sort_criteria TYPE s_sort_criteria.
+
+  DATA: num_of_char TYPE i,
+        index       TYPE i.
+
+  FIELD-SYMBOLS: <fs_field> LIKE p_sort_criteria-field_01.
+
+  num_of_char = numofchar( p_key_priority ).
+
+  DO num_of_char TIMES.
+
+    index = sy-index - 1.
+
+    IF p_key_priority+index(1) IS INITIAL.
+
+      UNASSIGN <fs_field>.
+
+      EXIT.
+
+    ENDIF.
+
+    ASSIGN COMPONENT sy-index OF STRUCTURE p_sort_criteria
+                              TO <fs_field>.
+
+    CASE p_key_priority+index(1).
+
+      WHEN '0'.
+
+        <fs_field> = 'SPRAS'.
+
+      WHEN '1'.
+
+        <fs_field> = 'BUKRS'.
+
+      WHEN '2'.
+
+        <fs_field> = 'WERKS'.
+
+      WHEN '3'.
+
+        <fs_field> = 'J_1BBRANCH'.
+
+      WHEN '4'.
+
+        <fs_field> = 'INCO1'.
+
+      WHEN '5'.
+
+        <fs_field> = 'ZTERM'.
+
+      WHEN '6'.
+
+        <fs_field> = 'LIFNR_EXP'.
+
+      WHEN '7'.
+
+        <fs_field> = 'LAND1_EXP'.
+
+      WHEN '8'.
+
+        <fs_field> = 'KUNNR_IMP'.
+
+      WHEN '9'.
+
+        <fs_field> = 'LAND1_IMP'.
+
+      WHEN 'A'.
+
+        <fs_field> = 'KUNNR_CLI'.
+
+      WHEN 'B'.
+
+        <fs_field> = 'LAND1_CLI'.
+
+    ENDCASE.
+
+    UNASSIGN <fs_field>.
+
+  ENDDO.
+
+ENDFORM.                    " build_rep_param_sort_criteria
+
+* --------------------------------------------------------------------
+* Form get_domain_description
+* --------------------------------------------------------------------
+* Objetivo: Retorna a descrição de um valor fixo de domínio
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_domain       Nome do domínio
+*     p_key          Valor fixo do domínio
+*     p_language     Idioma da descrição
+* <-- p_description  Descrição
+*     p_subrc        Código de retorno
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM get_domain_description
+     USING
+       p_domain      TYPE dd07t-domname
+       p_key         TYPE c
+       p_language    TYPE dd07t-ddlanguage
+     CHANGING
+       p_description TYPE dd07t-ddtext
+       p_subrc       TYPE sy-subrc.
+
+  STATICS: BEGIN OF wa_dd07t,
+             domname    TYPE dd07t-domname,
+             ddlanguage TYPE dd07t-ddlanguage,
+             domvalue_l TYPE dd07t-domvalue_l,
+             ddtext     TYPE dd07t-ddtext,
+           END OF wa_dd07t,
+           it_dd07t LIKE HASHED TABLE OF wa_dd07t
+                    WITH UNIQUE KEY domname
+                                    ddlanguage
+                                    domvalue_l.
+
+  IF wa_dd07t-domname = p_domain
+      AND wa_dd07t-domvalue_l = p_key
+      AND wa_dd07t-ddlanguage = p_language.
+
+    p_description = wa_dd07t-ddtext.
+
+    p_subrc = 0.
+
+  ELSE.
+
+    READ TABLE it_dd07t[] INTO wa_dd07t
+         WITH TABLE KEY domname    = p_domain
+                        ddlanguage = p_key
+                        domvalue_l = p_language.
+
+    IF sy-subrc = 0.
+
+      p_description = wa_dd07t-ddtext.
+
+      p_subrc = 0.
+
+    ELSE.
+*** Leandro Aguiar - 05/03/2008 - Início
+*      SELECT SINGLE ddtext
+*          FROM dd07t
+*          INTO wa_dd07t-ddtext
+*          WHERE domname    = p_domain
+*            AND ddlanguage = p_language
+*            AND domvalue_l = p_key.
+
+      SELECT ddtext
+      UP TO 1 ROWS
+          FROM dd07t
+          INTO wa_dd07t-ddtext
+          WHERE domname    = p_domain
+            AND ddlanguage = p_language
+            AND domvalue_l = p_key.
+      ENDSELECT.
+*** Leandro Aguiar - 05/03/2008 - Fim
+
+      IF sy-subrc = 0.
+
+        wa_dd07t-domname    = p_domain.
+        wa_dd07t-ddlanguage = p_language.
+        wa_dd07t-domvalue_l = p_key.
+
+        p_description = wa_dd07t-ddtext.
+
+        INSERT wa_dd07t INTO TABLE it_dd07t[].
+
+        p_subrc = 0.
+
+      ELSE.
+
+        p_subrc = 4.
+
+      ENDIF.
+
+    ENDIF.
+
+  ENDIF.
+
+ENDFORM.                    " get_domain_description
+
+* --------------------------------------------------------------------
+* Form get_sap_user_info
+* --------------------------------------------------------------------
+* Objetivo: Retornar o nome, sobrenome e cargo de um usuário SAP
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_user        Usuário SAP
+* <-- p_name_first  Nome
+*     p_name_last   Sobrenome
+*     p_function    Cargo
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      20/04/2007      Codificação inicial
+* --------------------------------------------------------------------
+FORM get_sap_user_info
+     USING
+       p_user       TYPE usr21-bname
+     CHANGING
+       p_name_first TYPE adrp-name_first
+       p_name_last  TYPE adrp-name_last
+       p_function   TYPE adcp-function.
+
+  STATICS: BEGIN OF wa_user_name,
+             bname      TYPE usr21-bname,
+             persnumber TYPE usr21-persnumber,
+             addrnumber TYPE usr21-addrnumber,
+             name_first TYPE adrp-name_first,
+             name_last  TYPE adrp-name_last,
+             function   TYPE adcp-function,
+           END OF wa_user_name.
+
+  IF wa_user_name-bname = p_user.
+
+    p_name_first = wa_user_name-name_first.
+    p_name_last  = wa_user_name-name_last.
+    p_function   = wa_user_name-function.
+
+  ELSE.
+
+    SELECT SINGLE persnumber addrnumber
+           INTO (wa_user_name-persnumber, wa_user_name-addrnumber)
+           FROM usr21
+           WHERE bname = p_user.
+
+    IF sy-subrc = 0.
+
+      wa_user_name-bname = p_user.
+
+*** Leandro Aguiar - 05/03/2008 - Início
+*      SELECT SINGLE name_first name_last
+*          INTO (wa_user_name-name_first, wa_user_name-name_last)
+*          FROM adrp
+*          WHERE persnumber = wa_user_name-persnumber
+*            AND date_from = ( SELECT MAX( date_from )
+*                                FROM adrp
+*                                WHERE persnumber
+*                                     = wa_user_name-persnumber
+*                                  AND date_from <= sy-datum
+*                                  AND nation IN (' ', 'I') )
+*            AND nation IN (' ', 'I').
+      SELECT name_first name_last
+          UP TO 1 ROWS
+          INTO (wa_user_name-name_first, wa_user_name-name_last)
+          FROM adrp
+          WHERE persnumber = wa_user_name-persnumber
+            AND date_from = ( SELECT MAX( date_from )
+                                FROM adrp
+                                WHERE persnumber
+                                     = wa_user_name-persnumber
+                                  AND date_from <= sy-datum
+                                  AND nation IN (' ', 'I') )
+            AND nation IN (' ', 'I').
+      ENDSELECT.
+*** Leandro Aguiar - 05/03/2008 - Fim
+
+      IF sy-subrc = 0.
+
+        p_name_first = wa_user_name-name_first.
+        p_name_last  = wa_user_name-name_last.
+
+      ELSE.
+
+        CLEAR: p_name_first,
+               p_name_last.
+
+      ENDIF.
+*** Leandro Aguiar - 05/03/2008 - Início
+*      SELECT SINGLE function
+*          INTO wa_user_name-function
+*          FROM adcp
+*          WHERE addrnumber = wa_user_name-addrnumber
+*            AND persnumber = wa_user_name-persnumber
+*            AND date_from = ( SELECT MAX( date_from )
+*                                FROM adcp
+*                                WHERE addrnumber
+*                                     = wa_user_name-addrnumber
+*                                  AND date_from <= sy-datum
+*                                  AND nation IN (' ', 'I') )
+*            AND nation IN (' ', 'I').
+      SELECT function
+          UP TO 1 ROWS
+          INTO wa_user_name-function
+          FROM adcp
+          WHERE addrnumber = wa_user_name-addrnumber
+            AND persnumber = wa_user_name-persnumber
+            AND date_from = ( SELECT MAX( date_from )
+                                FROM adcp
+                                WHERE addrnumber
+                                     = wa_user_name-addrnumber
+                                  AND date_from <= sy-datum
+                                  AND nation IN (' ', 'I') )
+            AND nation IN (' ', 'I').
+      ENDSELECT.
+*** Leandro Aguiar - 05/03/2008 - Fim
+
+
+      IF sy-subrc = 0.
+
+        p_function = wa_user_name-function.
+
+      ELSE.
+
+        CLEAR: p_function.
+
+      ENDIF.
+
+    ELSE.
+
+      CLEAR: p_name_first,
+             p_name_last,
+             p_function.
+
+    ENDIF.
+
+  ENDIF.
+
+ENDFORM.                    " get_sap_user_info
+
+* --------------------------------------------------------------------
+* Form translate_partner_code
+* --------------------------------------------------------------------
+* Objetivo: Verificar a correspondência de códigos de parceiro
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_codigo_ce  Código de parceiro do pw.CE
+* <-- p_codigo_r3  Código de parceiro do SAP
+*     p_subrc      Código de retorno
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM translate_partner_code
+     USING
+       p_codigo_ce TYPE /pws/zycet076-codigo_ce
+     CHANGING
+       p_codigo_r3 TYPE /pws/zycet076-codigo_r3
+       p_subrc     TYPE sy-subrc.
+
+  STATICS: BEGIN OF wa_zycet076,
+             codigo_ce TYPE /pws/zycet076-codigo_ce,
+             codigo_r3 TYPE /pws/zycet076-codigo_r3,
+           END OF wa_zycet076,
+           it_zycet076 LIKE HASHED TABLE OF wa_zycet076
+                            WITH UNIQUE KEY codigo_ce.
+
+  IF it_zycet076[] IS INITIAL.
+
+    SELECT codigo_ce codigo_r3
+        INTO TABLE it_zycet076
+        FROM /pws/zycet076. "#EC CI_NOWHERE
+
+    READ TABLE it_zycet076[]
+         INTO wa_zycet076
+         WITH TABLE KEY codigo_ce = '  '.
+
+  ENDIF.
+
+  IF wa_zycet076-codigo_ce = p_codigo_ce.
+
+    p_codigo_r3 = wa_zycet076-codigo_r3.
+
+    p_subrc = 0.
+
+  ELSE.
+
+    READ TABLE it_zycet076[]
+        INTO wa_zycet076
+        WITH TABLE KEY codigo_ce = p_codigo_ce.
+
+    IF sy-subrc = 0.
+
+      p_codigo_r3 = wa_zycet076-codigo_r3.
+
+      p_subrc = 0.
+
+    ELSE.
+
+      p_subrc = 4.
+
+    ENDIF.
+
+  ENDIF.
+
+ENDFORM.                    " translate_partner_code
+
+* --------------------------------------------------------------------
+* Form get_partner_address_number
+* --------------------------------------------------------------------
+* Objetivo: Retornar o número do endereço de um parceiro
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_vbeln  Número da ordem de venda
+*     p_posnr  Item da ordem de venda
+*     p_parvw  Função do parceiro na ordem de venda
+* <-- p_adrnr  Número do endereço
+*     p_subrc  Código de retorno
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM get_partner_address_number
+     USING
+       p_vbeln TYPE vbpa-vbeln
+       p_posnr TYPE vbpa-posnr
+       p_parvw TYPE vbpa-parvw
+     CHANGING
+       p_adrnr TYPE vbpa-adrnr
+       p_subrc TYPE sy-subrc.
+
+  STATICS: BEGIN OF wa_vbpa,
+             vbeln TYPE vbpa-vbeln,
+             posnr TYPE vbpa-posnr,
+             parvw TYPE vbpa-parvw,
+             adrnr TYPE vbpa-adrnr,
+           END OF wa_vbpa,
+           it_vbpa LIKE HASHED TABLE OF wa_vbpa
+                        WITH UNIQUE KEY vbeln
+                                        posnr
+                                        parvw.
+
+  IF wa_vbpa-vbeln = p_vbeln
+    AND wa_vbpa-posnr = p_posnr
+    AND wa_vbpa-parvw = p_parvw.
+
+    p_adrnr = wa_vbpa-adrnr.
+
+    p_subrc = 0.
+
+  ELSE.
+
+    READ TABLE it_vbpa[]
+         INTO wa_vbpa
+         WITH TABLE KEY vbeln = p_vbeln
+                        posnr = p_posnr
+                        parvw = p_parvw.
+
+    IF sy-subrc = 0.
+
+      p_adrnr = wa_vbpa-adrnr.
+
+      p_subrc = 0.
+
+    ELSE.
+
+      SELECT SINGLE adrnr
+          INTO wa_vbpa-adrnr
+          FROM vbpa
+          WHERE vbeln = p_vbeln
+            AND posnr = p_posnr
+            AND parvw = p_parvw.
+
+      IF sy-subrc = 0.
+
+        wa_vbpa-vbeln = p_vbeln.
+        wa_vbpa-posnr = p_posnr.
+        wa_vbpa-parvw = p_parvw.
+
+        p_adrnr = wa_vbpa-adrnr.
+
+        p_subrc = 0.
+
+        INSERT wa_vbpa INTO TABLE it_vbpa[].
+
+      ELSE.
+
+        p_subrc = 4.
+
+      ENDIF.
+
+    ENDIF.
+
+  ENDIF.
+
+ENDFORM.                    " get_partner_address_number
+
+* --------------------------------------------------------------------
+* Form get_adrc
+* --------------------------------------------------------------------
+* Objetivo: Selecionar um endereço usando o seu número.
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_addrnumber  Número do endereço
+* <-- p_adrc        Dados do endereço
+*     p_subrc       Código de retorno
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 316455      14/11/2006      Codificação inicial
+* --------------------------------------------------------------------
+FORM get_adrc
+     USING
+       p_addrnumber TYPE adrc-addrnumber
+     CHANGING
+       p_adrc       TYPE adrc
+       p_subrc      TYPE sy-subrc.
+
+  STATICS: it_adrc TYPE HASHED TABLE OF adrc
+                   WITH UNIQUE KEY addrnumber,
+           wa_adrc LIKE LINE OF it_adrc.
+
+  IF wa_adrc-addrnumber = p_addrnumber.
+
+    p_adrc = wa_adrc.
+
+    p_subrc = 0.
+
+  ELSE.
+
+    READ TABLE it_adrc[]
+         INTO wa_adrc
+         WITH TABLE KEY addrnumber = p_addrnumber.
+
+    IF sy-subrc = 0.
+
+      p_adrc = wa_adrc.
+
+      p_subrc = 0.
+
+    ELSE.
+*** Leandro Aguiar - 05/03/2008 - Início
+*      SELECT SINGLE *
+*          INTO wa_adrc
+*          FROM adrc
+*          WHERE addrnumber = p_addrnumber
+*            AND date_from = ( SELECT MAX( date_from )
+*                                   FROM adrc
+*                                   WHERE addrnumber = p_addrnumber
+*                                     AND date_from <= sy-datum
+*                                     AND nation IN (' ', 'I') )
+*            AND nation IN (' ', 'I').
+      SELECT *
+      UP TO 1 ROWS
+          INTO wa_adrc
+          FROM adrc
+          WHERE addrnumber = p_addrnumber
+            AND date_from = ( SELECT MAX( date_from )
+                                   FROM adrc
+                                   WHERE addrnumber = p_addrnumber
+                                     AND date_from <= sy-datum
+                                     AND nation IN (' ', 'I') )
+            AND nation IN (' ', 'I').
+      ENDSELECT.
+*** Leandro Aguiar - 05/03/2008 - Fim
+
+      IF sy-subrc = 0.
+
+        p_adrc = wa_adrc.
+
+        p_subrc = 0.
+
+        INSERT wa_adrc INTO TABLE it_adrc[].
+
+      ELSE.
+
+        p_subrc = 4.
+
+      ENDIF.
+
+    ENDIF.
+
+  ENDIF.
+
+ENDFORM.                    " get_adrc
+* Chamado - 377585 - Início
+*&---------------------------------------------------------------------*
+*&      Form  select_idioma
+*&---------------------------------------------------------------------*
+*      -->P_R_S3_DB  text
+*      -->P_P_S3_DB  text
+*      -->P_R_S3_FT  text
+*      -->P_CODPORTD text
+*      <--P_V_NAME_LANGU  text
+*----------------------------------------------------------------------*
+FORM select_idioma USING    p_s3_db
+                            p_v_s3_db
+*                            p_s3_ft "# EC NEEDED
+                            p_codportd
+                   CHANGING
+                            p_name_langu TYPE kna1-spras. "#EC NEEDED
+
+  IF p_s3_db EQ 'X'.
+    IF p_v_s3_db = sy-langu.
+      p_name_langu = sy-langu.
+    ELSE.
+      p_name_langu = p_v_s3_db.
+    ENDIF.
+  ELSE.
+    SELECT SINGLE spras
+      INTO p_name_langu
+      FROM kna1
+     WHERE kunnr = p_codportd.
+
+    IF sy-subrc <> 0.
+      p_name_langu = sy-langu.
+    ENDIF.
+  ENDIF.
+
+ENDFORM.                    " select_idioma
+
+* --------------------------------------------------------------------
+* Form get_text_edit_as_field
+* --------------------------------------------------------------------
+* Objetivo: Retorna o conteúdo de um texto SAP Script em um campo de
+*           texto. SY-SUBRC após a chamada é o mesmo da função
+*           READ_TEXT.
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_object    Objeto
+*     p_name      Nome
+*     p_id        ID
+*     p_language  Idioma
+* <-- p_text      Conteúdo
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado     Data            Descrição
+* --------------------------------------------------------------------
+* 377931      17/05/2007      Codificação inicial
+* --------------------------------------------------------------------
+FORM get_text_edit_as_field
+     USING
+       p_object   TYPE thead-tdobject
+       p_name     TYPE thead-tdname
+       p_id       TYPE thead-tdid
+       p_language TYPE thead-tdspras
+     CHANGING
+       p_text     TYPE c.
+
+  DATA: it_lines TYPE STANDARD TABLE OF tline,
+        wa_lines LIKE LINE OF it_lines.
+
+  CALL FUNCTION 'READ_TEXT'
+       EXPORTING
+            id                      = p_id
+            language                = p_language
+            name                    = p_name
+            object                  = p_object
+       TABLES
+            lines                   = it_lines[]
+       EXCEPTIONS
+            id                      = 1
+            language                = 2
+            name                    = 3
+            not_found               = 4
+            object                  = 5
+            reference_check         = 6
+            wrong_access_to_archive = 7
+            OTHERS                  = 8.
+
+  IF sy-subrc = 0.
+
+    CLEAR p_text.
+
+    LOOP AT it_lines INTO wa_lines.
+
+      IF p_text IS INITIAL.
+
+        p_text = wa_lines-tdline.
+
+        CONTINUE.
+
+      ENDIF.
+
+      CONCATENATE p_text wa_lines-tdline
+          INTO p_text
+          SEPARATED BY space.
+
+      IF sy-subrc <> 0.
+
+        EXIT.
+
+      ENDIF.
+
+    ENDLOOP.
+
+    sy-subrc = 0.
+
+  ENDIF.
+
+ENDFORM.                    " get_text_edit_as_field
+*Chamado - 385209 - Início
+*&---------------------------------------------------------------------*
+*&      Form  read_text_report
+*&---------------------------------------------------------------------*
+*      -->P_OBJECT  text
+*      -->P_NRSEQ   text
+*      -->P_ID      text
+*      -->V_LANGU   text
+*      -->P_POSICAO text
+*      <--P_TEXT    text
+*----------------------------------------------------------------------*
+* 381229       21/05/2007      Codificação inicial
+*----------------------------------------------------------------------*
+FORM read_text_report
+    USING
+        p_object   TYPE thead-tdobject
+        p_codigo   TYPE thead-tdname
+        p_id       TYPE thead-tdid
+        v_langu
+        p_posicao
+     CHANGING
+       p_text     TYPE c.
+
+  DATA:  p_codigo_aux   TYPE thead-tdname.
+
+  MOVE p_codigo TO p_codigo_aux.
+
+  SHIFT p_codigo_aux LEFT DELETING LEADING '0'.
+
+  CASE p_posicao.
+
+    WHEN 'A'.
+
+      CONCATENATE p_codigo_aux 'A' INTO p_codigo_aux.
+
+    WHEN 'D'.
+
+      CONCATENATE p_codigo_aux 'D' INTO p_codigo_aux.
+
+    WHEN OTHERS.
+
+      WRITE p_codigo TO p_codigo_aux.
+
+  ENDCASE.
+
+  CLEAR p_text.
+
+  PERFORM get_text_edit_as_field
+       USING
+         p_object
+         p_codigo_aux
+         p_id
+         v_langu
+       CHANGING
+         p_text.
+
+ENDFORM.                    " read_text_report
+*&---------------------------------------------------------------------*
+*&      Form  format_codigo
+*&---------------------------------------------------------------------*
+*  -->  p_documento        text
+*  -->  p_item             text
+*  -->  p_matnr            text
+*  -->  p_vkorg_auft       text
+*  -->  p_tweg_auft        text
+*  -->  p_nrseqtr          text
+*  -->  p_nrrota_tr        text
+*  -->  p_tipo             text
+*  <--  p_codigo           text
+*----------------------------------------------------------------------*
+* 381229       22/05/2007      Codificação inicial
+*----------------------------------------------------------------------*
+FORM format_codigo
+    USING
+        p_documento   TYPE /pws/zycre018-vbeln_vf
+        p_item        TYPE /pws/zycre018-posnr
+        p_matnr       TYPE /pws/zycre018-matnr
+        p_vkorg_auft  TYPE /pws/zycre018-vkorg_auft
+        p_vtweg_auft  TYPE /pws/zycre018-vtweg_auft
+        p_nrseqtr     TYPE /pws/zycet046-nrseqtr
+        p_nrrota_tr   TYPE /pws/zycet046-nrrota_tr
+        p_tipo        TYPE c
+     CHANGING
+        p_t_codigo    TYPE t_format_codigo.
+
+  DATA: wa_codigo LIKE LINE OF p_t_codigo[].
+
+  CASE p_tipo.
+
+    WHEN 'FAT'.
+
+      MOVE: p_documento TO wa_codigo-vbeln_vf,
+            p_item      TO wa_codigo-posnr.
+
+    WHEN 'FOR'.
+
+      MOVE: p_documento TO wa_codigo-vbeln_vl,
+            p_item      TO wa_codigo-posnl.
+
+    WHEN 'VND'.
+
+      MOVE: p_documento TO wa_codigo-vbeln_va,
+            p_item      TO wa_codigo-aupos.
+
+    WHEN 'MVKE'.
+
+      MOVE: p_matnr       TO wa_codigo-matnr,
+            p_vkorg_auft  TO wa_codigo-vkorg_auft,
+            p_vtweg_auft  TO wa_codigo-vtweg_auft.
+
+    WHEN 'MATERIAL'.
+
+      MOVE p_matnr       TO wa_codigo-matnr.
+
+    WHEN '/PWS/CE101'.
+
+      MOVE p_nrseqtr     TO wa_codigo-nrseqtr.
+
+    WHEN '/PWS/CE102'.
+
+      MOVE p_nrrota_tr   TO wa_codigo-nrrota_tr.
+
+  ENDCASE.
+
+  APPEND wa_codigo TO p_t_codigo[].
+
+ENDFORM.                    " format_codigo
+*&---------------------------------------------------------------------*
+*&      Form  concatenar_campos
+*&---------------------------------------------------------------------*
+*  -->  p_t_codigo   text
+*  -->  p_tipo       text
+*  <--  p_codigo     text
+*----------------------------------------------------------------------*
+* 381229       22/05/2007      Codificação inicial
+*----------------------------------------------------------------------*
+FORM concatenar_campos
+    USING
+       p_t_codigo   TYPE t_format_codigo
+       p_tipo       TYPE c
+     CHANGING
+       p_codigo     TYPE thead-tdname.
+
+  DATA: wa_codigo LIKE LINE OF p_t_codigo[].
+
+  READ TABLE p_t_codigo[] INTO wa_codigo INDEX 1.
+
+  IF sy-subrc = 0.
+    CASE p_tipo.
+
+      WHEN 'FAT'.
+
+        MOVE wa_codigo(16) TO p_codigo.
+
+      WHEN 'FOR'.
+
+        MOVE wa_codigo+16(16) TO p_codigo.
+
+      WHEN 'VND'.
+
+        MOVE wa_codigo+32(16) TO p_codigo.
+
+      WHEN 'VND_VBBK'.
+
+        MOVE wa_codigo+32(10) TO p_codigo.
+
+      WHEN 'MVKE'.
+
+        MOVE wa_codigo+48(24) TO p_codigo.
+
+      WHEN 'MATERIAL'.
+
+        MOVE wa_codigo+48(18) TO p_codigo.
+
+      WHEN '/PWS/CE101'.
+
+        MOVE wa_codigo+72(10) TO p_codigo.
+
+      WHEN '/PWS/CE102'.
+
+        MOVE wa_codigo+82(06) TO p_codigo.
+
+    ENDCASE.
+
+  ENDIF.
+
+ENDFORM.                    " concatenar_campos
+
+* --------------------------------------------------------------------
+* Form get_terms_payment_description
+* --------------------------------------------------------------------
+* Objetivo: Retorna a denominação de uma condição de pagamento
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_zterm  Condição de pagamento
+*     p_spras  Idioma da denominação
+* <-- p_text1  Denominação
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado  Data       Descrição
+* --------------------------------------------------------------------
+* 397452   30/07/07   Codificação inicial
+* --------------------------------------------------------------------
+FORM get_terms_payment_description
+     USING
+       p_zterm TYPE t052u-zterm
+       p_spras TYPE t052u-spras
+     CHANGING
+       p_text1 TYPE t052u-text1.
+
+  STATICS: BEGIN OF wa_t052u,
+             spras TYPE t052u-spras,
+             zterm TYPE t052u-zterm,
+             text1 TYPE t052u-text1,
+           END OF wa_t052u,
+           it_t052u LIKE HASHED TABLE OF wa_t052u
+                    WITH UNIQUE KEY spras
+                                    zterm.
+
+  IF wa_t052u-spras = p_spras
+      AND wa_t052u-zterm = p_zterm.
+
+    p_text1 = wa_t052u-text1.
+
+  ELSE.
+
+    READ TABLE it_t052u[] INTO wa_t052u
+         WITH TABLE KEY spras = p_spras
+                        zterm = p_zterm.
+
+    IF sy-subrc = 0.
+
+      p_text1 = wa_t052u-text1.
+
+    ELSE.
+
+*** Leandro Aguiar - 05/03/2008 - Início
+*      SELECT SINGLE spras
+*                    zterm
+*                    text1
+*         INTO wa_t052u
+*         FROM t052u
+*         WHERE spras = p_spras
+*           AND zterm = p_zterm.
+      SELECT        spras
+                    zterm
+                    text1
+         UP TO 1 ROWS
+         INTO wa_t052u
+         FROM t052u
+         WHERE spras = p_spras
+           AND zterm = p_zterm.
+      ENDSELECT.
+*** Leandro Aguiar - 05/03/2008 - Fim
+
+      IF sy-subrc <> 0.
+
+        wa_t052u-spras = p_spras.
+        wa_t052u-zterm = p_zterm.
+
+        CLEAR wa_t052u-text1.
+
+      ENDIF.
+
+      p_text1 = wa_t052u-text1.
+
+      INSERT wa_t052u INTO TABLE it_t052u[].
+
+    ENDIF.
+
+  ENDIF.
+
+ENDFORM.                   " GET_TERMS_PAYMENT_DESCRIPTION
+
+* --------------------------------------------------------------------
+* Form get_region_description
+* --------------------------------------------------------------------
+* Objetivo: Retorna a descrição de uma região em um dado idioma
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_spras  Idioma
+*     p_land1  Código do país
+*     p_bland  Código da região
+* <-- p_bezei  Descrição da região
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado  Data       Descrição
+* --------------------------------------------------------------------
+* 397452   30/07/07   Codificação inicial
+* --------------------------------------------------------------------
+FORM get_region_description
+     USING
+         p_spras TYPE t005u-spras
+         p_land1 TYPE t005u-land1
+         p_bland TYPE t005u-bland
+     CHANGING
+         p_bezei TYPE t005u-bezei.
+
+  STATICS: BEGIN OF wa_t005u,
+             spras TYPE t005u-spras,
+             land1 TYPE t005u-land1,
+             bland TYPE t005u-bland,
+             bezei TYPE t005u-bezei,
+           END OF wa_t005u,
+           it_t005u LIKE HASHED TABLE OF wa_t005u
+                    WITH UNIQUE KEY spras
+                                    land1
+                                    bland.
+
+  IF wa_t005u-spras = p_spras
+      AND wa_t005u-land1 = p_land1
+      AND wa_t005u-bland = p_bland.
+
+    p_bezei = wa_t005u-bezei.
+
+  ELSE.
+
+    READ TABLE it_t005u[] INTO wa_t005u
+         WITH TABLE KEY spras = p_spras
+                        land1 = p_land1
+                        bland = p_bland.
+
+    IF sy-subrc = 0.
+
+      p_bezei = wa_t005u-bezei.
+
+    ELSE.
+
+      SELECT SINGLE spras
+                    land1
+                    bland
+                    bezei
+         INTO wa_t005u
+         FROM t005u
+         WHERE spras = p_spras
+           AND land1 = p_land1
+           AND bland = p_bland.
+
+      IF sy-subrc <> 0.
+
+        wa_t005u-spras = p_spras.
+        wa_t005u-land1 = p_land1.
+        wa_t005u-bland = p_bland.
+
+        CLEAR wa_t005u-bezei.
+
+      ENDIF.
+
+      p_bezei = wa_t005u-bezei.
+
+      INSERT wa_t005u INTO TABLE it_t005u[].
+
+    ENDIF.
+
+  ENDIF.
+
+ENDFORM.                   " GET_REGION_DESCRIPTION
+
+* --------------------------------------------------------------------
+* Form busca_moeda_americana
+* --------------------------------------------------------------------
+* Objetivo: Buscar a moeda americana, definida por empresa, na
+*           /pws/zycbt007
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_bukrs   Empresa
+* <-- p_waersa  Moeda americana
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado  Data       Descrição
+* --------------------------------------------------------------------
+*
+* --------------------------------------------------------------------
+FORM busca_moeda_americana
+     USING
+       p_bukrs TYPE /pws/zycee001-bukrs
+     CHANGING
+       p_waersa TYPE /pws/zycbt007-waersa.
+
+  SELECT SINGLE waersa
+      FROM /pws/zycbt007
+      INTO p_waersa
+      WHERE bukrs = p_bukrs.
+
+  IF sy-subrc <> 0.
+
+    CLEAR p_waersa.
+
+  ENDIF.
+
+ENDFORM.                    " busca_moeda_americana
+
+* --------------------------------------------------------------------
+* Form get_single_item_group
+* --------------------------------------------------------------------
+* Objetivo: Retornar o nome do grupo escolhido pelo usuário, se for
+*           uma escolha única (um único item)
+* --------------------------------------------------------------------
+* Parâmetros:   ( --> Entrada ) ( <-- Saída ) ( <-> Tabelas )
+* --------------------------------------------------------------------
+* --> p_r_grupos  Range de grupos
+* <-- p_grupo     Nome do grupo
+* <-> <nenhum>
+* --------------------------------------------------------------------
+* Chamado  Data       Descrição
+* --------------------------------------------------------------------
+* 408776   19/09/07   Codificação inicial
+* --------------------------------------------------------------------
+FORM get_single_item_group
+     USING
+         p_r_grupos TYPE r_grupos
+     CHANGING
+         p_grupo    TYPE /pws/zycet002-grupo.
+
+  DATA: wa_grupos LIKE LINE OF p_r_grupos[].
+
+
+  CLEAR p_grupo.
+
+  DESCRIBE TABLE p_r_grupos[]. " Deve haver só 1 registro na tabela
+
+  CHECK sy-tfill = 1.
+
+  READ TABLE p_r_grupos[] INTO wa_grupos
+             INDEX 1
+             TRANSPORTING sign option low.
+
+  IF wa_grupos-sign = 'I'
+      AND wa_grupos-option = 'EQ'. " A opção deve ser igual
+
+    p_grupo = wa_grupos-low.
+
+  ENDIF.
+
+ENDFORM.                    " get_single_item_group
